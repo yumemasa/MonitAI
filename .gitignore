@@ -1,0 +1,23 @@
+# ビルド結果
+bin/
+obj/
+*.exe
+*.dll
+*.pdb
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.sln.docstates
+
+# 一時ファイル
+*_wpftmp.*
+
+# NuGet
+*.nupkg
+packages/
+
+# その他
+*.cache
+*.log
