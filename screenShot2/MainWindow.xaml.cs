@@ -9,6 +9,7 @@ using System.Windows.Media;
 using System.Net.Http;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 
 namespace screenShot2
 {
@@ -22,6 +23,10 @@ namespace screenShot2
         private int _screenshotCount = 0;
         private static readonly HttpClient _httpClient = new HttpClient();
         private List<string> _currentScreenshotPaths = new List<string>();
+        
+        // 画面ロック用のWin32 API
+        [DllImport("user32.dll")]
+        private static extern bool LockWorkStation();
 
         public MainWindow()
         {
@@ -325,18 +330,52 @@ namespace screenShot2
                     // レスポンスから結果を抽出
                     string result = ParseGeminiResponse(responseBody);
                     
+                    // 違反検知チェック
+                    bool isViolation = IsViolationDetected(result);
+                    
                     // 結果を表示
                     Dispatcher.Invoke(() =>
                     {
                         ResultTextBox.AppendText($"[{DateTime.Now:HH:mm:ss}] ");
+                        
+                        // 違反時は目立つように表示
+                        if (isViolation)
+                        {
+                            ResultTextBox.AppendText("⚠️⚠️⚠️ 違反検知！ ⚠️⚠️⚠️");
+                            ResultTextBox.AppendText(Environment.NewLine);
+                        }
+                        
                         ResultTextBox.AppendText(result);
                         ResultTextBox.AppendText(Environment.NewLine);
                         ResultTextBox.AppendText("---");
                         ResultTextBox.AppendText(Environment.NewLine);
+                        
+                        // 最新のテキストが見えるように自動スクロール
+                        ResultTextBox.CaretIndex = ResultTextBox.Text.Length;
                         ResultTextBox.ScrollToEnd();
                     });
                     
                     AddLog("Gemini分析完了");
+                    
+                    // ⭐ 違反検知時に画面ロック（3秒後に実行して結果を見る時間を確保）
+                    if (EnableLockCheckBox.IsChecked == true && isViolation)
+                    {
+                        AddLog("⚠️ 違反検知！3秒後に画面をロックします...");
+                        Dispatcher.Invoke(() =>
+                        {
+                            ResultTextBox.AppendText($"[{DateTime.Now:HH:mm:ss}] 🔒 3秒後に画面ロック実行...");
+                            ResultTextBox.AppendText(Environment.NewLine);
+                            
+                            // 最新のテキストが見えるように自動スクロール
+                            ResultTextBox.CaretIndex = ResultTextBox.Text.Length;
+                            ResultTextBox.ScrollToEnd();
+                        });
+                        
+                        // 3秒待ってから画面ロック
+                        await Task.Delay(3000);
+                        LockWorkStation();
+                        AddLog("画面ロック実行完了");
+                    }
                 }
                 else
                 {
@@ -428,6 +467,40 @@ namespace screenShot2
                 // エラー時はデフォルトで30秒待機
             }
             return 30; // デフォルト30秒
+        }
+        
+        // 違反検知ロジック
+        private bool IsViolationDetected(string geminiResponse)
+        {
+            if (string.IsNullOrWhiteSpace(geminiResponse))
+                return false;
+            
+            string response = geminiResponse.Trim();
+            
+            // まず最初に「○」で始まる場合は違反なし
+            if (response.StartsWith("○"))
+                return false;
+            
+            // 「×」で始まる場合は違反
+            if (response.StartsWith("×"))
+                return true;
+            
+            // 「○」が含まれていて、かつ「内容:」も含まれている場合は違反なし
+            if (response.Contains("○") && response.Contains("内容:"))
+                return false;
+            
+            // 違反を示すキーワード（ただし「○」がない場合のみチェック）
+            if (!response.Contains("○"))
+            {
+                string[] violationKeywords = { "違反", "ルール違反", "問題あり", "不適切" };
+                foreach (string keyword in violationKeywords)
+                {
+                    if (response.Contains(keyword))
+                        return true;
+                }
+            }
+            
+            return false;
         }
     }
 }

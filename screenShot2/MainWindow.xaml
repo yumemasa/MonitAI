@@ -73,55 +73,53 @@
         
         <!-- 右側: Gemini設定と結果 -->
         <Border Grid.Column="2" BorderBrush="LightGray" BorderThickness="1" Padding="10" Margin="10,0,0,0">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
-                
-                <TextBlock Grid.Row="0" Text="Gemini AI 分析" FontWeight="Bold" FontSize="14" Margin="0,0,0,15"/>
-                
-                <!-- API Key -->
-                <StackPanel Grid.Row="1" Margin="0,0,0,15">
-                    <TextBlock Text="Gemini API Key：" Margin="0,0,0,5"/>
-                    <PasswordBox x:Name="ApiKeyPasswordBox"/>
-                </StackPanel>
+            <DockPanel>
+                <!-- 上部のコントロール -->
+                <StackPanel DockPanel.Dock="Top">
+                    <TextBlock Text="Gemini AI 分析" FontWeight="Bold" FontSize="14" Margin="0,0,0,15"/>
+                    
+                    <!-- API Key -->
+                    <StackPanel Margin="0,0,0,15">
+                        <TextBlock Text="Gemini API Key：" Margin="0,0,0,5"/>
+                        <PasswordBox x:Name="ApiKeyPasswordBox"/>
+                    </StackPanel>
 
-                <!-- モデル選択 -->
-                <StackPanel Grid.Row="2" Margin="0,0,0,15">
-                    <TextBlock Text="モデル：" Margin="0,0,0,5"/>
-                    <ComboBox x:Name="ModelComboBox" SelectedIndex="1">
-                        <ComboBoxItem Content="gemini-2.5-pro"/>
-                        <ComboBoxItem Content="gemini-2.5-flash"/>
-                        <ComboBoxItem Content="gemini-2.5-flash-lite"/>
-                    </ComboBox>
-                </StackPanel>
+                    <!-- モデル選択 -->
+                    <StackPanel Margin="0,0,0,15">
+                        <TextBlock Text="モデル：" Margin="0,0,0,5"/>
+                        <ComboBox x:Name="ModelComboBox" SelectedIndex="1">
+                            <ComboBoxItem Content="gemini-2.5-pro"/>
+                            <ComboBoxItem Content="gemini-2.5-flash"/>
+                            <ComboBoxItem Content="gemini-2.5-flash-lite"/>
+                        </ComboBox>
+                    </StackPanel>
 
-                <!-- ルール入力 -->
-                <StackPanel Grid.Row="3" Margin="0,0,0,15">
-                    <TextBlock Text="目標・ルール（違反時のみ通知）：" Margin="0,0,0,5"/>
-                    <TextBox x:Name="RulesTextBox" Height="80" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"/>
-                </StackPanel>
+                    <!-- ルール入力 -->
+                    <StackPanel Margin="0,0,0,15">
+                        <TextBlock Text="目標・ルール（違反時のみ通知）：" Margin="0,0,0,5"/>
+                        <TextBox x:Name="RulesTextBox" Height="80" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"/>
+                    </StackPanel>
 
-                <!-- Gemini送信チェックボックス -->
-                <StackPanel Grid.Row="4" Margin="0,0,0,15">
-                    <CheckBox x:Name="EnableGeminiCheckBox" Content="Gemini分析を有効にする" IsChecked="True"/>
-                </StackPanel>
-
-                <!-- 分析結果 -->
-                <StackPanel Grid.Row="5">
+                    <!-- Gemini送信チェックボックス -->
+                    <StackPanel Margin="0,0,0,15">
+                        <CheckBox x:Name="EnableGeminiCheckBox" Content="Gemini分析を有効にする" IsChecked="True" Margin="0,0,0,5"/>
+                        <CheckBox x:Name="EnableLockCheckBox" Content="違反検知時に画面ロック" IsChecked="True" Foreground="Red" FontWeight="Bold"/>
+                    </StackPanel>
+                    
                     <TextBlock Text="分析結果：" FontWeight="Bold" Margin="0,0,0,5"/>
-                    <Border BorderBrush="LightGray" BorderThickness="1" Padding="5">
-                        <ScrollViewer VerticalScrollBarVisibility="Auto">
-                            <TextBox x:Name="ResultTextBox" TextWrapping="Wrap" IsReadOnly="True" BorderThickness="0" Background="Transparent"/>
-                        </ScrollViewer>
-                    </Border>
                 </StackPanel>
-            </Grid>
+
+                <!-- 分析結果（残りのスペース全て使用） -->
+                <Border BorderBrush="LightGray" BorderThickness="1" DockPanel.Dock="Top">
+                    <TextBox x:Name="ResultTextBox" 
+                             TextWrapping="Wrap" 
+                             IsReadOnly="True" 
+                             BorderThickness="0" 
+                             Background="White"
+                             VerticalScrollBarVisibility="Auto"
+                             AcceptsReturn="True"/>
+                </Border>
+            </DockPanel>
         </Border>
     </Grid>
 </Window>
