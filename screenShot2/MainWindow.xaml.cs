@@ -719,7 +719,12 @@ namespace screenShot2
                     jsonBuilder.Append("\"}}");
                 }
                 
-                jsonBuilder.Append("]}]}");
+                jsonBuilder.Append("]}]");
+                
+                // 生成パラメータを追加（最大トークン数を増やす）
+                jsonBuilder.Append(", \"generationConfig\": {\"maxOutputTokens\": 4000}");
+                
+                jsonBuilder.Append("}");
                 
                 var content = new StringContent(jsonBuilder.ToString(), Encoding.UTF8, "application/json");
                 
