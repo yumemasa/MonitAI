@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using NAudio.CoreAudioApi;
 
 namespace screenShot2
 {
@@ -441,7 +442,7 @@ namespace screenShot2
             else if (_violationPoints <= 60)
             {
                 interventionMessage = "🔔 レベル1: ビープ音";
-                await PlayBeepAsync();
+                await PlayForcedAlertAsync();
             }
             // 61-100pt: 入力遅延
             else if (_violationPoints <= 100)
@@ -451,7 +452,7 @@ namespace screenShot2
                 {
                     EnableInputDelay();
                 }
-                await PlayBeepAsync();
+                await PlayForcedAlertAsync();
             }
             // 101-150pt: グレースケール
             else if (_violationPoints <= 150)
@@ -459,7 +460,7 @@ namespace screenShot2
                 interventionMessage = "🎨 レベル3: グレースケール適用";
                 if (!_isDelayEnabled) EnableInputDelay();
                 if (!_isGrayscaleEnabled) ApplyGrayscale();
-                await PlayBeepAsync();
+                await PlayForcedAlertAsync();
             }
             // 151-200pt: マウス反転
             else if (_violationPoints <= 200)
@@ -468,7 +469,7 @@ namespace screenShot2
                 if (!_isDelayEnabled) EnableInputDelay();
                 if (!_isGrayscaleEnabled) ApplyGrayscale();
                 if (!_isMouseInverted) EnableMouseInversion();
-                await PlayBeepAsync();
+                await PlayForcedAlertAsync();
             }
             // 201-250pt: 画面ロック
             else if (_violationPoints <= 250)
@@ -531,6 +532,87 @@ namespace screenShot2
             catch (Exception ex)
             {
                 AddLog($"ビープ音エラー: {ex.Message}");
+            }
+        }
+        
+        // 強制的に音量を操作してアラートを鳴らす
+        private async Task PlayForcedAlertAsync(float targetVolume = 0.8f)
+        {
+            MMDevice? device = null;
+            float originalVolume = 0;
+            bool originalMute = false;
+            bool stateSaved = false;
+
+            try
+            {
+                // 1. デバイス取得
+                // MMDeviceEnumeratorを使用して、既定のオーディオレンダリングデバイスを取得
+                using (var enumerator = new MMDeviceEnumerator())
+                {
+                    device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+                }
+
+                if (device != null)
+                {
+                    // 2. 状態保存
+                    // 現在のマスター音量（0.0～1.0）とミュート状態をバックアップ
+                    originalVolume = device.AudioEndpointVolume.MasterVolumeLevelScalar;
+                    originalMute = device.AudioEndpointVolume.Mute;
+                    stateSaved = true;
+
+                    // 3. 強制設定
+                    // ミュートを解除し、音量を指定レベルに設定
+                    device.AudioEndpointVolume.Mute = false;
+                    device.AudioEndpointVolume.MasterVolumeLevelScalar = targetVolume;
+                    
+                    AddLog($"🔊 アラート再生: 音量を強制的に {targetVolume * 100:F0}% に設定しました");
+                }
+            }
+            catch (Exception ex)
+            {
+                AddLog($"オーディオデバイス操作エラー: {ex.Message}");
+                // デバイス操作に失敗しても、音だけは鳴らすように続行
+            }
+
+            // 4. アラート再生
+            try
+            {
+                await Task.Run(() =>
+                {
+                    // 特徴的な警告音（高音と低音の繰り返し）
+                    for (int i = 0; i < 3; i++)
+                    {
+                        Console.Beep(2000, 200); // 高音
+                        Console.Beep(1000, 200); // 低音
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                AddLog($"ビープ音再生エラー: {ex.Message}");
+            }
+            finally
+            {
+                // 5. 状態復元
+                // 必ず元の音量とミュート状態に戻す
+                if (device != null && stateSaved)
+                {
+                    try
+                    {
+                        device.AudioEndpointVolume.Mute = originalMute;
+                        device.AudioEndpointVolume.MasterVolumeLevelScalar = originalVolume;
+                        // AddLog("音量を元に戻しました"); // ログがうるさくなるのでコメントアウト
+                    }
+                    catch (Exception ex)
+                    {
+                        AddLog($"音量復元エラー: {ex.Message}");
+                    }
+                    
+                    // MMDeviceはIDisposableを実装している場合があるが、
+                    // NAudioのMMDeviceはDisposeメソッドを持っていない（COMラッパーのため）。
+                    // 明示的な解放は不要だが、参照を外す。
+                    device = null;
+                }
             }
         }
         
