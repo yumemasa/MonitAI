@@ -400,6 +400,48 @@ namespace screenShot2
             }
         }
         
+        // 入力遅延を無効化
+        private void DisableInputDelay()
+        {
+            if (!_isDelayEnabled) return;
+            
+            if (_keyboardHookID != IntPtr.Zero)
+            {
+                UnhookWindowsHookEx(_keyboardHookID);
+                _keyboardHookID = IntPtr.Zero;
+                _isDelayEnabled = false;
+                AddLog("入力遅延を解除しました");
+            }
+        }
+
+        // グレースケールを解除
+        private void DisableGrayscale()
+        {
+            if (!_isGrayscaleEnabled) return;
+            
+            try
+            {
+                MagUninitialize();
+                _isGrayscaleEnabled = false;
+                AddLog("グレースケールを解除しました");
+            }
+            catch (Exception ex)
+            {
+                AddLog($"グレースケール解除エラー: {ex.Message}");
+            }
+        }
+
+        // マウス反転を強制解除
+        private void DisableMouseInversion()
+        {
+            if (!_isMouseInverted) return;
+            
+            _mouseInversionTimer?.Stop();
+            _moveTimer?.Stop();
+            _isMouseInverted = false;
+            AddLog("マウス反転を解除しました");
+        }
+        
         // キーボードフックのコールバック
         private IntPtr KeyboardHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
         {
@@ -528,6 +570,7 @@ namespace screenShot2
             AddLog(interventionMessage);
             Dispatcher.Invoke(() =>
             {
+                InterventionTextBlock.Text = interventionMessage;
                 ResultTextBox.AppendText($"介入レベル: {interventionMessage}");
                 ResultTextBox.AppendText(Environment.NewLine);
                 ResultTextBox.CaretIndex = ResultTextBox.Text.Length;
@@ -757,7 +800,7 @@ namespace screenShot2
                 AddLog($"Gemini分析を開始 ({imagePaths.Count}枚の画像)...");
                 
                 // 選択されたモデル名を取得
-                string modelName = ((System.Windows.Controls.ComboBoxItem)ModelComboBox.SelectedItem).Content.ToString() ?? "gemini-2.5-flash";
+                string modelName = ((System.Windows.Controls.ComboBoxItem)ModelComboBox.SelectedItem)?.Content.ToString() ?? "gemini-2.5-flash-lite";
                 
                 // Gemini APIのエンドポイント
                 string apiUrl = $"https://generativelanguage.googleapis.com/v1beta/models/{modelName}:generateContent?key={ApiKeyPasswordBox.Password}";
@@ -849,6 +892,21 @@ namespace screenShot2
                     // 違反検知チェック
                     bool isViolation = IsViolationDetected(result);
                     
+                    // 判定結果の強調表示
+                    Dispatcher.Invoke(() =>
+                    {
+                        if (isViolation)
+                        {
+                            VerdictTextBlock.Text = "判定: × (違反)";
+                            VerdictTextBlock.Foreground = new SolidColorBrush(Colors.Red);
+                        }
+                        else
+                        {
+                            VerdictTextBlock.Text = "判定: ○ (正常)";
+                            VerdictTextBlock.Foreground = new SolidColorBrush(Colors.Green);
+                        }
+                    });
+
                     // ポイント加算/減算
                     if (isViolation)
                     {
@@ -859,6 +917,16 @@ namespace screenShot2
                     {
                         _violationPoints = Math.Max(0, _violationPoints - 5);
                         AddLog($"✅ 正常動作。ポイント -5 (合計: {_violationPoints}pt)");
+                        
+                        // 正常動作時はペナルティを解除
+                        DisableInputDelay();
+                        DisableGrayscale();
+                        DisableMouseInversion();
+                        
+                        Dispatcher.Invoke(() =>
+                        {
+                            InterventionTextBlock.Text = "介入: なし (解除)";
+                        });
                     }
                     
                     // UIのポイント表示を更新
@@ -938,26 +1006,25 @@ namespace screenShot2
         {
             try
             {
-                // 簡易的なJSON解析（candidates[0].content.parts[0].textを抽出）
-                int textIndex = jsonResponse.IndexOf("\"text\":");
-                if (textIndex != -1)
+                using (JsonDocument doc = JsonDocument.Parse(jsonResponse))
                 {
-                    int startIndex = jsonResponse.IndexOf("\"", textIndex + 7) + 1;
-                    int endIndex = jsonResponse.IndexOf("\"", startIndex);
-                    
-                    if (startIndex > 0 && endIndex > startIndex)
+                    if (doc.RootElement.TryGetProperty("candidates", out JsonElement candidates) && 
+                        candidates.GetArrayLength() > 0)
                     {
-                        string result = jsonResponse.Substring(startIndex, endIndex - startIndex);
-                        // エスケープシーケンスを処理
-                        result = result.Replace("\\n", "\n").Replace("\\\"", "\"");
-                        return result;
+                        var firstCandidate = candidates[0];
+                        if (firstCandidate.TryGetProperty("content", out JsonElement content) && 
+                            content.TryGetProperty("parts", out JsonElement parts) && 
+                            parts.GetArrayLength() > 0)
+                        {
+                            return parts[0].GetProperty("text").GetString() ?? "";
+                        }
                     }
                 }
                 return "分析結果を解析できませんでした。";
             }
-            catch
+            catch (Exception ex)
             {
-                return "分析結果の解析中にエラーが発生しました。";
+                return $"分析結果の解析中にエラーが発生しました: {ex.Message}";
             }
         }
         
@@ -965,21 +1032,22 @@ namespace screenShot2
         {
             try
             {
-                // "retryDelay": "24s" のような形式から秒数を抽出
-                int retryIndex = errorResponse.IndexOf("\"retryDelay\":");
-                if (retryIndex != -1)
+                using (JsonDocument doc = JsonDocument.Parse(errorResponse))
                 {
-                    int startIndex = errorResponse.IndexOf("\"", retryIndex + 13) + 1;
-                    int endIndex = errorResponse.IndexOf("\"", startIndex);
-                    
-                    if (startIndex > 0 && endIndex > startIndex)
+                    if (doc.RootElement.TryGetProperty("error", out JsonElement error) &&
+                        error.TryGetProperty("details", out JsonElement details))
                     {
-                        string delayStr = errorResponse.Substring(startIndex, endIndex - startIndex);
-                        // "24s" や "24.504554452s" から数値を抽出
-                        delayStr = delayStr.Replace("s", "");
-                        if (double.TryParse(delayStr, out double seconds))
+                        foreach (var detail in details.EnumerateArray())
                         {
-                            return (int)Math.Ceiling(seconds) + 1; // 切り上げ+1秒の余裕
+                            if (detail.TryGetProperty("retryDelay", out JsonElement retryDelay))
+                            {
+                                string delayStr = retryDelay.GetString() ?? "30s";
+                                delayStr = delayStr.Replace("s", "");
+                                if (double.TryParse(delayStr, out double seconds))
+                                {
+                                    return (int)Math.Ceiling(seconds) + 1;
+                                }
+                            }
                         }
                     }
                 }
