@@ -35,6 +35,7 @@ namespace screenShot2
         private System.Windows.Forms.Timer? _moveTimer;
         private System.Windows.Forms.Timer? _mouseInversionTimer;
         private System.Drawing.Point _lastMousePos;
+        private System.Windows.Forms.NotifyIcon? _notifyIcon; // 追加
         
         // キーボードフック関連
         private static LowLevelKeyboardProc? _keyboardProc;
@@ -109,6 +110,14 @@ namespace screenShot2
             _mouseInversionTimer.Interval = 30000; // 30秒
             _mouseInversionTimer.Tick += MouseInversionTimer_Tick;
             
+            // 通知アイコンの初期化
+            _notifyIcon = new System.Windows.Forms.NotifyIcon
+            {
+                Icon = System.Drawing.SystemIcons.Warning,
+                Visible = true,
+                Text = "ScreenShot2 Monitor"
+            };
+
             // キーボードフックのデリゲート設定
             _keyboardProc = KeyboardHookCallback;
         }
@@ -194,7 +203,7 @@ namespace screenShot2
 
         private async Task StartCaptureLoop()
         {
-            const int cycleMs = 45000; // 45秒サイクル
+            const int cycleMs = 20000; // 45秒サイクル
 
             while (_isCapturing)
             {
@@ -350,6 +359,7 @@ namespace screenShot2
             _mouseInversionTimer?.Stop();
             if (_isGrayscaleEnabled) MagUninitialize();
             if (_keyboardHookID != IntPtr.Zero) UnhookWindowsHookEx(_keyboardHookID);
+            _notifyIcon?.Dispose(); // 追加
             
             // 設定ファイルにAPIキーを保存する
             SaveSettings();
@@ -432,49 +442,59 @@ namespace screenShot2
         private async Task ApplyInterventionLevel()
         {
             string interventionMessage = "";
+            string userGoal = string.IsNullOrWhiteSpace(RulesTextBox.Text) ? "設定された目標" : RulesTextBox.Text;
+            // 改行が含まれる場合は最初の行だけ取得し、長すぎる場合は切り詰める
+            var goalSummary = userGoal.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "目標";
+            if (goalSummary.Length > 50) goalSummary = goalSummary.Substring(0, 50) + "...";
             
-            // 0-30pt: 警告のみ
-            if (_violationPoints <= 30)
+            // レベル1: 通知 (1-30pt)
+            if (_violationPoints >= 1 && _violationPoints <= 30)
             {
-                interventionMessage = "📢 警告: ルールを守りましょう";
+                interventionMessage = "📢 レベル1: 警告通知";
+                ShowNotification($"あなたの目標は「{goalSummary}」です。やるべきことに戻りましょう。");
             }
-            // 31-60pt: ビープ音
+            // 0pt以下の場合は何もしない
+            else if (_violationPoints <= 0)
+            {
+                return;
+            }
+            // レベル2: 入力遅延 (31-60pt)
             else if (_violationPoints <= 60)
             {
-                interventionMessage = "🔔 レベル1: ビープ音";
-                await PlayForcedAlertAsync();
-            }
-            // 61-100pt: 入力遅延
-            else if (_violationPoints <= 100)
-            {
                 interventionMessage = "⏱️ レベル2: 入力遅延開始";
-                if (!_isDelayEnabled)
-                {
-                    EnableInputDelay();
-                }
-                await PlayForcedAlertAsync();
+                if (!_isDelayEnabled) EnableInputDelay();
+                ShowNotification($"レベル2: 入力遅延が発生しています。目標: {goalSummary}");
             }
-            // 101-150pt: グレースケール
-            else if (_violationPoints <= 150)
+            // レベル3: グレースケール (61-100pt)
+            else if (_violationPoints <= 100)
             {
                 interventionMessage = "🎨 レベル3: グレースケール適用";
                 if (!_isDelayEnabled) EnableInputDelay();
                 if (!_isGrayscaleEnabled) ApplyGrayscale();
-                await PlayForcedAlertAsync();
+                ShowNotification($"レベル3: グレースケール適用中。目標: {goalSummary}");
             }
-            // 151-200pt: マウス反転
-            else if (_violationPoints <= 200)
+            // レベル4: マウス反転 (101-150pt)
+            else if (_violationPoints <= 150)
             {
                 interventionMessage = "🖱️ レベル4: マウス反転開始";
                 if (!_isDelayEnabled) EnableInputDelay();
                 if (!_isGrayscaleEnabled) ApplyGrayscale();
                 if (!_isMouseInverted) EnableMouseInversion();
+                ShowNotification($"レベル4: マウス反転中。目標: {goalSummary}");
+            }
+            // レベル5: ビープ音 (151-200pt)
+            else if (_violationPoints <= 200)
+            {
+                interventionMessage = "🔔 レベル5: ビープ音";
+                if (!_isDelayEnabled) EnableInputDelay();
+                if (!_isGrayscaleEnabled) ApplyGrayscale();
+                if (!_isMouseInverted) EnableMouseInversion();
                 await PlayForcedAlertAsync();
             }
-            // 201-250pt: 画面ロック
+            // レベル6: 画面ロック (201-250pt)
             else if (_violationPoints <= 250)
             {
-                interventionMessage = "🔒 レベル5: 画面ロック実行";
+                interventionMessage = "🔒 レベル6: 画面ロック実行";
                 AddLog("⚠️ ポイント上限！3秒後に画面をロックします...");
                 Dispatcher.Invoke(() =>
                 {
@@ -488,10 +508,10 @@ namespace screenShot2
                 AddLog("画面ロック実行完了");
                 return;
             }
-            // 251pt以上: シャットダウン
+            // レベル7: シャットダウン (251pt以上)
             else
             {
-                interventionMessage = "💻 レベル6: 強制シャットダウン";
+                interventionMessage = "💻 レベル7: 強制シャットダウン";
                 AddLog("⚠️⚠️⚠️ 最終警告！5秒後にシャットダウンします！");
                 Dispatcher.Invoke(() =>
                 {
@@ -514,6 +534,12 @@ namespace screenShot2
                 ResultTextBox.ScrollToEnd();
             });
         }
+
+        private void ShowNotification(string message)
+        {
+            _notifyIcon?.ShowBalloonTip(3000, "警告: ルールを守りましょう", message, System.Windows.Forms.ToolTipIcon.Warning);
+        }
+
         
         // ビープ音を鳴らす
         private async Task PlayBeepAsync()
@@ -762,7 +788,8 @@ namespace screenShot2
 
 【回答フォーマット】
 まず、画面の状況を分析し、その後に判定結果を出力してください。
-**重要: 分析は簡略化せず、以下のステップで思考プロセス（Chain of Thought）を展開してください。回答速度より、回答の精度を優先してください。**
+重要: 分析は簡略化せず、以下のステップで思考プロセス（Chain of Thought）を展開してください。回答速度より、回答の精度を優先してください。
+重要: 出力にはMarkdown記法（太字、イタリック、見出し記号など）を一切使用せず、プレーンテキストのみを使用してください。
 
 [分析]
 1. 状況の客観的記述:
@@ -866,8 +893,11 @@ namespace screenShot2
                     
                     AddLog("Gemini分析完了");
                     
-                    // ⭐ ポイントに応じた介入を実行
-                    await ApplyInterventionLevel();
+                    // ⭐ ポイントに応じた介入を実行（違反時のみ）
+                    if (isViolation)
+                    {
+                        await ApplyInterventionLevel();
+                    }
                 }
                 else
                 {

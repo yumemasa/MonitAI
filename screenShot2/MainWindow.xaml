@@ -98,11 +98,11 @@
                         <Border Background="#FFF3E0" BorderBrush="Orange" BorderThickness="1" Padding="5" Margin="0,10,0,0">
                             <StackPanel>
                                 <TextBlock x:Name="PointsTextBlock" Text="現在のポイント: 0pt" FontWeight="Bold" FontSize="12"/>
-                                <TextBlock Text="0-30pt: 警告のみ" FontSize="10" Foreground="Gray"/>
-                                <TextBlock Text="31-60pt: ビープ音" FontSize="10" Foreground="Gray"/>
-                                <TextBlock Text="61-100pt: 入力遅延" FontSize="10" Foreground="Gray"/>
-                                <TextBlock Text="101-150pt: グレースケール" FontSize="10" Foreground="Gray"/>
-                                <TextBlock Text="151-200pt: マウス反転" FontSize="10" Foreground="Gray"/>
+                                <TextBlock Text="1-30pt: 通知" FontSize="10" Foreground="Gray"/>
+                                <TextBlock Text="31-60pt: 入力遅延" FontSize="10" Foreground="Gray"/>
+                                <TextBlock Text="61-100pt: グレースケール" FontSize="10" Foreground="Gray"/>
+                                <TextBlock Text="101-150pt: マウス反転" FontSize="10" Foreground="Gray"/>
+                                <TextBlock Text="151-200pt: ビープ音" FontSize="10" Foreground="Gray"/>
                                 <TextBlock Text="201-250pt: 画面ロック" FontSize="10" Foreground="OrangeRed"/>
                                 <TextBlock Text="251pt~: シャットダウン" FontSize="10" Foreground="Red" FontWeight="Bold"/>
                             </StackPanel>
