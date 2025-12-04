@@ -1090,26 +1090,17 @@ namespace screenShot2
                     continue;
                 }
 
-                // [判定] セクション内、またはセクションが見つからない場合でも
-                // 行頭が明らかに「×」で始まっていれば違反とみなす
-                if (trimmedLine.StartsWith("×"))
+                // [判定] セクション内でのみ判定を行う
+                if (inVerdictSection)
                 {
-                    return true;
+                    if (trimmedLine.StartsWith("×"))
+                    {
+                        return true;
+                    }
                 }
-                
-                // 行頭が「○」なら違反なし（ただし [判定] セクション内を優先したいが、
-                // 誤検知防止のため、明示的な × が見つかるまでは false を返さないでおく）
             }
 
-            // 最終手段: キーワード検索（ただし分析部分での誤検知リスクがあるため慎重に）
-            // 明確に「違反」という言葉があり、かつ「○」で始まっていない場合
-            if (geminiResponse.Contains("違反") || geminiResponse.Contains("ルール違反"))
-            {
-                // 分析の中で「違反はありません」と言っているケースを除外したい
-                // 単純なキーワード判定は危険なので、基本は × の検出に頼るべき。
-                // ここでは、×が見つからなかった場合は false (違反なし) とする方が安全。
-                return false;
-            }
+          
             
             return false;
         }
