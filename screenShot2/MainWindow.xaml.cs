@@ -11,7 +11,11 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Diagnostics;
+using System.Text.RegularExpressions;
 using NAudio.CoreAudioApi;
+
+using System.Runtime.CompilerServices;
 
 namespace screenShot2
 {
@@ -26,6 +30,11 @@ namespace screenShot2
         private static readonly HttpClient _httpClient = new HttpClient();
         private List<string> _currentScreenshotPaths = new List<string>();
         private Random _random = new Random();
+
+        // Gemini CLI (APIレート回避のため優先利用)
+        private bool _useGeminiCli = true; // true ならCLIを優先し、失敗時のみHTTP APIへフォールバック
+        private string _geminiCliCommand = @"C:\\nvm4w\\nodejs\\gemini.cmd"; // 環境に応じて変更。PATHが通っていれば "gemini" でも可
+        private bool _geminiCliAvailable = false;
         
         // ポイント制介入システム
         private int _violationPoints = 0;
@@ -133,6 +142,9 @@ namespace screenShot2
             
             // 設定ファイルからAPIキーを読み込む
             LoadSettings();
+
+            // Gemini CLI 接続チェック（非同期で実施）
+            _ = CheckGeminiCliConnectionAsync();
         }
 
         private void UpdateMonitorInfo()
@@ -576,6 +588,39 @@ namespace screenShot2
             _notifyIcon?.ShowBalloonTip(3000, "警告: ルールを守りましょう", message, System.Windows.Forms.ToolTipIcon.Warning);
         }
 
+        // Gemini CLI 接続チェック（手動ボタン用）
+        private async void CheckGeminiCliButton_Click(object sender, RoutedEventArgs e)
+        {
+            await CheckGeminiCliConnectionAsync();
+        }
+
+        private async Task CheckGeminiCliConnectionAsync()
+        {
+            UpdateGeminiCliStatus("CLI: 確認中...", System.Windows.Media.Colors.DarkGoldenrod);
+
+            string result = await RunCommandAsync(_geminiCliCommand, "--version", Environment.CurrentDirectory);
+
+            if (!string.IsNullOrWhiteSpace(result) && !result.Contains("error", StringComparison.OrdinalIgnoreCase) && !result.Contains("not found", StringComparison.OrdinalIgnoreCase))
+            {
+                _geminiCliAvailable = true;
+                UpdateGeminiCliStatus($"CLI: 接続OK ({result.Trim()})", System.Windows.Media.Colors.ForestGreen);
+            }
+            else
+            {
+                _geminiCliAvailable = false;
+                UpdateGeminiCliStatus("CLI: 接続NG (パスを確認してください)", System.Windows.Media.Colors.IndianRed);
+            }
+        }
+
+        private void UpdateGeminiCliStatus(string text, System.Windows.Media.Color color)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                GeminiCliStatusTextBlock.Text = text;
+                GeminiCliStatusTextBlock.Foreground = new SolidColorBrush(color);
+            });
+        }
+
         // ビープ音を鳴らす
         private async Task PlayBeepAsync()
         {
@@ -760,61 +805,40 @@ namespace screenShot2
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(ApiKeyPasswordBox.Password))
-                {
-                    AddLog("Gemini API Keyが設定されていません");
-                    return;
-                }
-                
                 if (string.IsNullOrWhiteSpace(RulesTextBox.Text))
                 {
                     AddLog("目標・ルールが設定されていません");
                     return;
                 }
-                
+
                 AddLog($"Gemini分析を開始 ({imagePaths.Count}枚の画像)...");
-                
+
+                string userRules = RulesTextBox.Text;
+                string? cliResult = null;
+
+                // 1) CLI優先（成功すればHTTP APIを使わない）
+                if (_useGeminiCli && IsGeminiCliAvailable())
+                {
+                    cliResult = await AnalyzeWithGeminiCliAsync(imagePaths, userRules);
+                    if (!string.IsNullOrWhiteSpace(cliResult))
+                    {
+                        HandleGeminiResult(cliResult);
+                        return;
+                    }
+                    AddLog("CLI解析に失敗したためAPIへフォールバックします");
+                }
+
+                // 2) HTTP API フォールバック
+                if (string.IsNullOrWhiteSpace(ApiKeyPasswordBox.Password))
+                {
+                    AddLog("Gemini API Keyが設定されていません (CLIも失敗)");
+                    return;
+                }
+
                 string modelName = ((System.Windows.Controls.ComboBoxItem)ModelComboBox.SelectedItem)?.Content.ToString() ?? "gemini-2.5-flash-lite";
                 string apiUrl = $"https://generativelanguage.googleapis.com/v1beta/models/{modelName}:generateContent?key={ApiKeyPasswordBox.Password}";
-                string userRules = RulesTextBox.Text;
-                
-                string prompt = $@"
-【重要：判定ガイドライン】
-1. * *メインアクティビティの特定 * *:
-   -画面上の「小さなアイコン」「背景」「脇にある広告」「ブラウザのタブ」は無視してください。
-   -画面の中央、または最も大きく表示されている「アクティブなウィンドウ」の内容だけで判断してください。
 
-2. * *誤検知の防止 * *:
-   -動画サイト（YouTubeなど）のロゴやリンクが画面の隅に映っているだけでは「違反」にしないでください。
-   -勉強や業務のサイトに表示されている「広告バナー」は違反の対象外です。ユーザーがそれをクリックして視聴していない限り、無視してください。
-
-3. * *否定条件の解釈 * *:
-   - 「～以外は禁止」というルールの場合、許可された行動（～）のみが「○」です。それ以外は全て「×」です。
-   - 「～以外は許可」というルールの場合、禁止された行動（～）のみが「×」です。それ以外は全て「○」です。
-
-【回答フォーマット】
-まず、画面の状況を分析し、その後に判定結果を出力してください。
-重要: 分析は簡略化せず、以下のステップで思考プロセス（Chain of Thought）を展開してください。回答速度より、回答の精度を優先してください。
-重要: 出力にはMarkdown記法（太字、イタリック、見出し記号など）を一切使用せず、プレーンテキストのみを使用してください。
-
-[分析]
-                1.状況の客観的記述:
-   -複数の画像がある場合は、(画像1)... (画像2)... のように画像を区別し、ウィンドウタイトル、実行中のコマンド、AIとのチャット内容、操作中の設定項目などを可能な限り詳細に言語化してください。
-   -単に「作業中」とせず、「何を使って」「何をしているか」を具体的に記述してください。
-2.ルールとの照合プロセス:
-   -記述した状況をユーザーのルールと照らし合わせ、許可される行動か、禁止される行動かを段階的に検討してください。
-   -違反の疑いがある要素（YouTubeやSNSなど）について、それが「アクティブなウィンドウ」か「単なる映り込み（無視対象）」かを論理的に推論し、判定の根拠を固めてください。
-
-[判定]
-（以下のいずれかのみ出力）
-○
-内容: [ユーザーの行動]
-（または）
-×
-理由: [具体的な違反理由]
-                ";
-
-
+                string prompt = BuildAnalysisPrompt(userRules);
 
                 StringBuilder jsonBuilder = new StringBuilder();
                 jsonBuilder.Append("{\"contents\":[{\"parts\":[");
@@ -843,48 +867,7 @@ namespace screenShot2
                 if (response.IsSuccessStatusCode)
                 {
                     string result = ParseGeminiResponse(responseBody);
-                    bool isViolation = IsViolationDetected(result);
-
-                    if (isViolation)
-                    {
-                        _violationPoints += 30;
-                        AddLog($"⚠️ 違反検知！ポイント +30 (合計: {_violationPoints}pt)");
-                    }
-                    else
-                    {
-                        _violationPoints = Math.Max(0, _violationPoints - 5);
-                        AddLog($"✅ 正常動作。ポイント -5 (合計: {_violationPoints}pt)");
-                        
-                        DisableInputDelay();
-                        DisableGrayscale();
-                        DisableMouseInversion();
-                    }
-                    
-                    Dispatcher.Invoke(() =>
-                    {
-                        PointsTextBlock.Text = $"現在のポイント: {_violationPoints}pt";
-                        ResultTextBox.AppendText($"[{DateTime.Now:HH:mm:ss}] ");
-                        if (isViolation)
-                        {
-                            ResultTextBox.AppendText("⚠️⚠️⚠️ 違反検知！ ⚠️⚠️⚠️");
-                            ResultTextBox.AppendText(Environment.NewLine);
-                        }
-                        ResultTextBox.AppendText(result);
-                        ResultTextBox.AppendText(Environment.NewLine);
-                        ResultTextBox.AppendText($"現在のポイント: {_violationPoints}pt");
-                        ResultTextBox.AppendText(Environment.NewLine);
-                        ResultTextBox.AppendText("---");
-                        ResultTextBox.AppendText(Environment.NewLine);
-                        ResultTextBox.CaretIndex = ResultTextBox.Text.Length;
-                        ResultTextBox.ScrollToEnd();
-                    });
-                    
-                    AddLog("Gemini分析完了");
-                    
-                    if (isViolation)
-                    {
-                        await ApplyInterventionLevel();
-                    }
+                    HandleGeminiResult(result);
                 }
                 else
                 {
@@ -906,6 +889,211 @@ namespace screenShot2
             {
                 AddLog($"Gemini分析エラー: {ex.Message}");
             }
+        }
+
+        // CLI優先時の判定ハンドラ共通化
+        private void HandleGeminiResult(string result)
+        {
+            bool isViolation = IsViolationDetected(result);
+
+            if (isViolation)
+            {
+                _violationPoints += 30;
+                AddLog($"⚠️ 違反検知！ポイント +30 (合計: {_violationPoints}pt)");
+            }
+            else
+            {
+                _violationPoints = Math.Max(0, _violationPoints - 5);
+                AddLog($"✅ 正常動作。ポイント -5 (合計: {_violationPoints}pt)");
+                DisableInputDelay();
+                DisableGrayscale();
+                DisableMouseInversion();
+            }
+
+            Dispatcher.Invoke(() =>
+            {
+                PointsTextBlock.Text = $"現在のポイント: {_violationPoints}pt";
+                ResultTextBox.AppendText($"[{DateTime.Now:HH:mm:ss}] ");
+                if (isViolation)
+                {
+                    ResultTextBox.AppendText("⚠️⚠️⚠️ 違反検知！ ⚠️⚠️⚠️");
+                    ResultTextBox.AppendText(Environment.NewLine);
+                }
+                ResultTextBox.AppendText(result);
+                ResultTextBox.AppendText(Environment.NewLine);
+                ResultTextBox.AppendText($"現在のポイント: {_violationPoints}pt");
+                ResultTextBox.AppendText(Environment.NewLine);
+                ResultTextBox.AppendText("---");
+                ResultTextBox.AppendText(Environment.NewLine);
+                ResultTextBox.CaretIndex = ResultTextBox.Text.Length;
+                ResultTextBox.ScrollToEnd();
+            });
+
+            AddLog("Gemini分析完了");
+
+            if (isViolation)
+            {
+                _ = ApplyInterventionLevel();
+            }
+        }
+
+        // CLI接続可否
+        private bool IsGeminiCliAvailable()
+        {
+            try
+            {
+                if (_geminiCliAvailable) return true;
+                if (File.Exists(_geminiCliCommand)) return true;
+                // PATHで解決できるか簡易チェック（存在しなくても実行時にエラーで判定できる）
+                return !string.IsNullOrWhiteSpace(_geminiCliCommand);
+            }
+            catch { return false; }
+        }
+
+        // CLI呼び出し
+        private async Task<string?> AnalyzeWithGeminiCliAsync(List<string> imagePaths, string userRules)
+        {
+            try
+            {
+                if (imagePaths.Count == 0) return null;
+
+                // HTTP API と同じベースプロンプト(BuildAnalysisPrompt)をCLIでも利用し、その下にCLI固有の指示と画像パスを追記
+                string basePrompt = BuildAnalysisPrompt(userRules).Trim();
+
+                var sb = new StringBuilder();
+                sb.AppendLine(basePrompt);
+                sb.AppendLine();
+                sb.AppendLine("【CLI追加指示】");
+                sb.AppendLine("以下の絶対パスにある画像ファイルを read_file ツールで読み込み、[分析] と [判定] を既存フォーマットで出力してください。");
+                sb.AppendLine("出力はMarkdown記法禁止。判定は [判定] セクションで ○ または × を明記。");
+                sb.AppendLine("画像一覧 (それぞれ read_file で開いて解析してください):");
+                foreach (var path in imagePaths)
+                {
+                    sb.AppendLine($"\"{path}\"");
+                }
+
+                string prompt = sb.ToString();
+                string workingDir = Path.GetDirectoryName(imagePaths[0]) ?? Environment.CurrentDirectory;
+                // 改行をエスケープして1行のコマンドライン引数にする
+                string safePrompt = prompt.Replace("\"", "\\\"").Replace("\r\n", "\\n").Replace("\n", "\\n");
+                string args = $"--yolo -p \"{safePrompt}\"";
+
+                string raw = await RunCommandAsync(_geminiCliCommand, args, workingDir);
+                if (string.IsNullOrWhiteSpace(raw)) return null;
+                _geminiCliAvailable = true;
+                UpdateGeminiCliStatus("CLI: 接続OK", System.Windows.Media.Colors.ForestGreen);
+                return CleanCliOutput(raw);
+            }
+            catch (Exception ex)
+            {
+                AddLog($"Gemini CLI エラー: {ex.Message}");
+                _geminiCliAvailable = false;
+                UpdateGeminiCliStatus("CLI: 接続NG (エラー)", System.Windows.Media.Colors.IndianRed);
+                return null;
+            }
+        }
+
+        // コマンド実行（作業ディレクトリ指定付き）
+        private Task<string> RunCommandAsync(string command, string arguments, string workingDirectory)
+        {
+            return Task.Run(() =>
+            {
+                try
+                {
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = command,
+                        Arguments = arguments,
+                        WorkingDirectory = (!string.IsNullOrEmpty(workingDirectory) && Directory.Exists(workingDirectory)) ? workingDirectory : Environment.CurrentDirectory,
+                        CreateNoWindow = true,
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        StandardOutputEncoding = Encoding.UTF8,
+                        StandardErrorEncoding = Encoding.UTF8
+                    };
+
+                    using (var process = new Process())
+                    {
+                        process.StartInfo = psi;
+                        process.Start();
+
+                        string output = process.StandardOutput.ReadToEnd();
+                        string error = process.StandardError.ReadToEnd();
+
+                        process.WaitForExit(90000); // 90秒上限
+                        if (!process.HasExited)
+                        {
+                            try { process.Kill(); } catch { }
+                            return "[タイムアウト] Gemini CLIが応答しませんでした。";
+                        }
+
+                        return output + (string.IsNullOrEmpty(error) ? string.Empty : "\n" + error);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    return $"[実行エラー] {ex.Message}";
+                }
+            });
+        }
+
+        // CLI出力整形
+        private string CleanCliOutput(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+
+            string text = raw;
+            text = Regex.Replace(text, @"\x1B\[[^@-~]*[@-~]", ""); // ANSIカラー除去
+            text = Regex.Replace(text, @"[╭─╮│╰╯✓]", ""); // 枠線除去
+
+            var lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+            var cleanLines = new List<string>();
+            foreach (var line in lines)
+            {
+                var l = line.Trim();
+                if (string.IsNullOrWhiteSpace(l)) continue;
+                if (l.StartsWith("ReadFile") || l.StartsWith("Read image")) continue;
+                if (l.Contains("Tool Calls:")) continue;
+                if (l.Contains("YOLO mode is enabled")) continue;
+                if (l.Contains("Loaded cached credentials")) continue;
+                if (l.Contains("All tool calls will be automatically approved")) continue;
+                cleanLines.Add(l);
+            }
+
+            return string.Join(Environment.NewLine, cleanLines);
+        }
+
+        // 共通プロンプト生成
+        private string BuildAnalysisPrompt(string userRules)
+        {
+            return $@"
+【重要：判定ガイドライン】
+1. **メインアクティビティの特定**:
+   - 画面上の「小さなアイコン」「背景」「脇にある広告」「ブラウザのタブ」は無視してください。
+   - 画面の中央、または最も大きく表示されている「アクティブなウィンドウ」の内容だけで判断してください。
+
+2. **誤検知の防止**:
+   - 動画サイト（YouTubeなど）のロゴやリンクが画面の隅に映っているだけでは「違反」にしないでください。
+   - 勉強や業務のサイトに表示されている「広告バナー」は違反の対象外です。ユーザーがそれをクリックして視聴していない限り、無視してください。
+
+3. **否定条件の解釈**:
+   - 「～以外は禁止」の場合、許可された行動（～）のみが「○」。それ以外は全て「×」。
+   - 「～以外は許可」の場合、禁止された行動（～）のみが「×」。それ以外は全て「○」。
+
+【ユーザーのルール】
+{userRules}
+
+【回答フォーマット】
+[分析]
+1. 状況を具体的に記述（画像ごとに分け、ウィンドウタイトル/操作内容を詳述）
+2. ルールとの照合プロセスを段階的に示す
+
+[判定]
+○\n内容: [ユーザーの行動]
+または
+×\n理由: [具体的な違反理由]
+";
         }
         
         private string EscapeJsonString(string str)
