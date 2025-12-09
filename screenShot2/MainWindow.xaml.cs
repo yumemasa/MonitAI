@@ -35,7 +35,7 @@ namespace screenShot2
         private System.Windows.Forms.Timer? _moveTimer;
         private System.Windows.Forms.Timer? _mouseInversionTimer;
         private System.Drawing.Point _lastMousePos;
-        private System.Windows.Forms.NotifyIcon? _notifyIcon; // 追加
+        private System.Windows.Forms.NotifyIcon? _notifyIcon;
         
         // キーボードフック関連
         private static LowLevelKeyboardProc? _keyboardProc;
@@ -253,9 +253,6 @@ namespace screenShot2
             AddLog($"撮影停止 - 合計 {_screenshotCount} 枚撮影");
         }
 
-        // Timer_Tick は不要になったため削除
-
-
         private async void CaptureAllScreens()
         {
             try
@@ -308,13 +305,12 @@ namespace screenShot2
                     graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
 
                     // 画面をキャプチャ（座標を正確に指定）
-                    // bounds.Location は画面の左上座標、Size は幅と高さ
                     graphics.CopyFromScreen(
-                        bounds.Left,      // ソースX座標
-                        bounds.Top,       // ソースY座標
-                        0,                // デスティネーションX座標
-                        0,                // デスティネーションY座標
-                        new System.Drawing.Size(bounds.Width, bounds.Height),  // コピーするサイズ
+                        bounds.Left,
+                        bounds.Top,
+                        0,
+                        0,
+                        new System.Drawing.Size(bounds.Width, bounds.Height),
                         CopyPixelOperation.SourceCopy);
                 }
 
@@ -359,7 +355,7 @@ namespace screenShot2
             _mouseInversionTimer?.Stop();
             if (_isGrayscaleEnabled) MagUninitialize();
             if (_keyboardHookID != IntPtr.Zero) UnhookWindowsHookEx(_keyboardHookID);
-            _notifyIcon?.Dispose(); // 追加
+            _notifyIcon?.Dispose();
             
             // 設定ファイルにAPIキーを保存する
             SaveSettings();
@@ -485,7 +481,6 @@ namespace screenShot2
         {
             string interventionMessage = "";
             string userGoal = string.IsNullOrWhiteSpace(RulesTextBox.Text) ? "設定された目標" : RulesTextBox.Text;
-            // 改行が含まれる場合は最初の行だけ取得し、長すぎる場合は切り詰める
             var goalSummary = userGoal.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "目標";
             if (goalSummary.Length > 50) goalSummary = goalSummary.Substring(0, 50) + "...";
             
@@ -495,7 +490,6 @@ namespace screenShot2
                 interventionMessage = "📢 レベル1: 警告通知";
                 ShowNotification($"あなたの目標は「{goalSummary}」です。やるべきことに戻りましょう。");
             }
-            // 0pt以下の場合は何もしない
             else if (_violationPoints <= 0)
             {
                 return;
@@ -570,7 +564,6 @@ namespace screenShot2
             AddLog(interventionMessage);
             Dispatcher.Invoke(() =>
             {
-                InterventionTextBlock.Text = interventionMessage;
                 ResultTextBox.AppendText($"介入レベル: {interventionMessage}");
                 ResultTextBox.AppendText(Environment.NewLine);
                 ResultTextBox.CaretIndex = ResultTextBox.Text.Length;
@@ -583,7 +576,6 @@ namespace screenShot2
             _notifyIcon?.ShowBalloonTip(3000, "警告: ルールを守りましょう", message, System.Windows.Forms.ToolTipIcon.Warning);
         }
 
-        
         // ビープ音を鳴らす
         private async Task PlayBeepAsync()
         {
@@ -614,8 +606,6 @@ namespace screenShot2
 
             try
             {
-                // 1. デバイス取得
-                // MMDeviceEnumeratorを使用して、既定のオーディオレンダリングデバイスを取得
                 using (var enumerator = new MMDeviceEnumerator())
                 {
                     device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
@@ -623,14 +613,10 @@ namespace screenShot2
 
                 if (device != null)
                 {
-                    // 2. 状態保存
-                    // 現在のマスター音量（0.0～1.0）とミュート状態をバックアップ
                     originalVolume = device.AudioEndpointVolume.MasterVolumeLevelScalar;
                     originalMute = device.AudioEndpointVolume.Mute;
                     stateSaved = true;
 
-                    // 3. 強制設定
-                    // ミュートを解除し、音量を指定レベルに設定
                     device.AudioEndpointVolume.Mute = false;
                     device.AudioEndpointVolume.MasterVolumeLevelScalar = targetVolume;
                     
@@ -640,19 +626,16 @@ namespace screenShot2
             catch (Exception ex)
             {
                 AddLog($"オーディオデバイス操作エラー: {ex.Message}");
-                // デバイス操作に失敗しても、音だけは鳴らすように続行
             }
 
-            // 4. アラート再生
             try
             {
                 await Task.Run(() =>
                 {
-                    // 特徴的な警告音（高音と低音の繰り返し）
                     for (int i = 0; i < 3; i++)
                     {
-                        Console.Beep(2000, 200); // 高音
-                        Console.Beep(1000, 200); // 低音
+                        Console.Beep(2000, 200);
+                        Console.Beep(1000, 200);
                     }
                 });
             }
@@ -662,24 +645,17 @@ namespace screenShot2
             }
             finally
             {
-                // 5. 状態復元
-                // 必ず元の音量とミュート状態に戻す
                 if (device != null && stateSaved)
                 {
                     try
                     {
                         device.AudioEndpointVolume.Mute = originalMute;
                         device.AudioEndpointVolume.MasterVolumeLevelScalar = originalVolume;
-                        // AddLog("音量を元に戻しました"); // ログがうるさくなるのでコメントアウト
                     }
                     catch (Exception ex)
                     {
                         AddLog($"音量復元エラー: {ex.Message}");
                     }
-                    
-                    // MMDeviceはIDisposableを実装している場合があるが、
-                    // NAudioのMMDeviceはDisposeメソッドを持っていない（COMラッパーのため）。
-                    // 明示的な解放は不要だが、参照を外す。
                     device = null;
                 }
             }
@@ -725,7 +701,7 @@ namespace screenShot2
                 AddLog($"グレースケールエラー: {ex.Message}");
             }
         }
-        
+
         // マウス反転を有効化
         private void EnableMouseInversion()
         {
@@ -735,7 +711,7 @@ namespace screenShot2
             GetCursorPos(out POINT p);
             _lastMousePos = new System.Drawing.Point(p.X, p.Y);
             _moveTimer?.Start();
-            _mouseInversionTimer?.Start(); // 30秒タイマー開始
+            _mouseInversionTimer?.Start();
             AddLog("マウス反転を開始しました（30秒後に自動解除）");
         }
         
@@ -784,7 +760,6 @@ namespace screenShot2
         {
             try
             {
-                // API Keyのバリデーション
                 if (string.IsNullOrWhiteSpace(ApiKeyPasswordBox.Password))
                 {
                     AddLog("Gemini API Keyが設定されていません");
@@ -799,33 +774,21 @@ namespace screenShot2
                 
                 AddLog($"Gemini分析を開始 ({imagePaths.Count}枚の画像)...");
                 
-                // 選択されたモデル名を取得
                 string modelName = ((System.Windows.Controls.ComboBoxItem)ModelComboBox.SelectedItem)?.Content.ToString() ?? "gemini-2.5-flash-lite";
-                
-                // Gemini APIのエンドポイント
                 string apiUrl = $"https://generativelanguage.googleapis.com/v1beta/models/{modelName}:generateContent?key={ApiKeyPasswordBox.Password}";
-                
-                // ユーザーのルールを取得
                 string userRules = RulesTextBox.Text;
                 
-                // flash-liteでも詳細な考察を強制するプロンプト
                 string prompt = $@"
-あなたはユーザーのPC画面を監視し、生産性を管理する厳格なAIアシスタントです。
-以下の【ユーザーのルール】と【判定ガイドライン】に基づいて、厳密に判定を行ってください。
-
-【ユーザーのルール】
-{userRules}
-
 【重要：判定ガイドライン】
-1. **メインアクティビティの特定**:
-   - 画面上の「小さなアイコン」「背景」「脇にある広告」「ブラウザのタブ」は無視してください。
-   - 画面の中央、または最も大きく表示されている「アクティブなウィンドウ」の内容だけで判断してください。
+1. * *メインアクティビティの特定 * *:
+   -画面上の「小さなアイコン」「背景」「脇にある広告」「ブラウザのタブ」は無視してください。
+   -画面の中央、または最も大きく表示されている「アクティブなウィンドウ」の内容だけで判断してください。
 
-2. **誤検知の防止**:
-   - 動画サイト（YouTubeなど）のロゴやリンクが画面の隅に映っているだけでは「違反」にしないでください。
-   - 勉強や業務のサイトに表示されている「広告バナー」は違反の対象外です。ユーザーがそれをクリックして視聴していない限り、無視してください。
+2. * *誤検知の防止 * *:
+   -動画サイト（YouTubeなど）のロゴやリンクが画面の隅に映っているだけでは「違反」にしないでください。
+   -勉強や業務のサイトに表示されている「広告バナー」は違反の対象外です。ユーザーがそれをクリックして視聴していない限り、無視してください。
 
-3. **否定条件の解釈**:
+3. * *否定条件の解釈 * *:
    - 「～以外は禁止」というルールの場合、許可された行動（～）のみが「○」です。それ以外は全て「×」です。
    - 「～以外は許可」というルールの場合、禁止された行動（～）のみが「×」です。それ以外は全て「○」です。
 
@@ -835,12 +798,12 @@ namespace screenShot2
 重要: 出力にはMarkdown記法（太字、イタリック、見出し記号など）を一切使用せず、プレーンテキストのみを使用してください。
 
 [分析]
-1. 状況の客観的記述:
-   - 複数の画像がある場合は、(画像1)... (画像2)... のように画像を区別し、ウィンドウタイトル、実行中のコマンド、AIとのチャット内容、操作中の設定項目などを可能な限り詳細に言語化してください。
-   - 単に「作業中」とせず、「何を使って」「何をしているか」を具体的に記述してください。
-2. ルールとの照合プロセス:
-   - 記述した状況をユーザーのルールと照らし合わせ、許可される行動か、禁止される行動かを段階的に検討してください。
-   - 違反の疑いがある要素（YouTubeやSNSなど）について、それが「アクティブなウィンドウ」か「単なる映り込み（無視対象）」かを論理的に推論し、判定の根拠を固めてください。
+                1.状況の客観的記述:
+   -複数の画像がある場合は、(画像1)... (画像2)... のように画像を区別し、ウィンドウタイトル、実行中のコマンド、AIとのチャット内容、操作中の設定項目などを可能な限り詳細に言語化してください。
+   -単に「作業中」とせず、「何を使って」「何をしているか」を具体的に記述してください。
+2.ルールとの照合プロセス:
+   -記述した状況をユーザーのルールと照らし合わせ、許可される行動か、禁止される行動かを段階的に検討してください。
+   -違反の疑いがある要素（YouTubeやSNSなど）について、それが「アクティブなウィンドウ」か「単なる映り込み（無視対象）」かを論理的に推論し、判定の根拠を固めてください。
 
 [判定]
 （以下のいずれかのみ出力）
@@ -849,18 +812,16 @@ namespace screenShot2
 （または）
 ×
 理由: [具体的な違反理由]
-";
-                
-                // JSON リクエストボディを作成
+                ";
+
+
+
                 StringBuilder jsonBuilder = new StringBuilder();
                 jsonBuilder.Append("{\"contents\":[{\"parts\":[");
-                
-                // テキストプロンプトを追加
                 jsonBuilder.Append("{\"text\":\"");
                 jsonBuilder.Append(EscapeJsonString(prompt));
                 jsonBuilder.Append("\"}");
                 
-                // 各画像をBase64エンコードして追加
                 foreach (string imagePath in imagePaths)
                 {
                     byte[] imageBytes = File.ReadAllBytes(imagePath);
@@ -872,96 +833,54 @@ namespace screenShot2
                 }
                 
                 jsonBuilder.Append("]}]");
-                
-                // 生成パラメータを追加（最大トークン数を増やす）
                 jsonBuilder.Append(", \"generationConfig\": {\"maxOutputTokens\": 4000}");
-                
                 jsonBuilder.Append("}");
                 
                 var content = new StringContent(jsonBuilder.ToString(), Encoding.UTF8, "application/json");
-                
-                // API呼び出し
                 var response = await _httpClient.PostAsync(apiUrl, content);
                 string responseBody = await response.Content.ReadAsStringAsync();
                 
                 if (response.IsSuccessStatusCode)
                 {
-                    // レスポンスから結果を抽出
                     string result = ParseGeminiResponse(responseBody);
-                    
-                    // 違反検知チェック
                     bool isViolation = IsViolationDetected(result);
-                    
-                    // 判定結果の強調表示
-                    Dispatcher.Invoke(() =>
-                    {
-                        if (isViolation)
-                        {
-                            VerdictTextBlock.Text = "判定: × (違反)";
-                            VerdictTextBlock.Foreground = new SolidColorBrush(Colors.Red);
-                        }
-                        else
-                        {
-                            VerdictTextBlock.Text = "判定: ○ (正常)";
-                            VerdictTextBlock.Foreground = new SolidColorBrush(Colors.Green);
-                        }
-                    });
 
-                    // ポイント加算/減算
                     if (isViolation)
                     {
                         _violationPoints += 30;
-                        AddLog($"⚠️ 違反検知！ポイント +10 (合計: {_violationPoints}pt)");
+                        AddLog($"⚠️ 違反検知！ポイント +30 (合計: {_violationPoints}pt)");
                     }
                     else
                     {
                         _violationPoints = Math.Max(0, _violationPoints - 5);
                         AddLog($"✅ 正常動作。ポイント -5 (合計: {_violationPoints}pt)");
                         
-                        // 正常動作時はペナルティを解除
                         DisableInputDelay();
                         DisableGrayscale();
                         DisableMouseInversion();
-                        
-                        Dispatcher.Invoke(() =>
-                        {
-                            InterventionTextBlock.Text = "介入: なし (解除)";
-                        });
                     }
                     
-                    // UIのポイント表示を更新
                     Dispatcher.Invoke(() =>
                     {
                         PointsTextBlock.Text = $"現在のポイント: {_violationPoints}pt";
-                    });
-                    
-                    // 結果を表示
-                    Dispatcher.Invoke(() =>
-                    {
                         ResultTextBox.AppendText($"[{DateTime.Now:HH:mm:ss}] ");
-                        
-                        // 違反時は目立つように表示
                         if (isViolation)
                         {
                             ResultTextBox.AppendText("⚠️⚠️⚠️ 違反検知！ ⚠️⚠️⚠️");
                             ResultTextBox.AppendText(Environment.NewLine);
                         }
-                        
                         ResultTextBox.AppendText(result);
                         ResultTextBox.AppendText(Environment.NewLine);
                         ResultTextBox.AppendText($"現在のポイント: {_violationPoints}pt");
                         ResultTextBox.AppendText(Environment.NewLine);
                         ResultTextBox.AppendText("---");
                         ResultTextBox.AppendText(Environment.NewLine);
-                        
-                        // 最新のテキストが見えるように自動スクロール
                         ResultTextBox.CaretIndex = ResultTextBox.Text.Length;
                         ResultTextBox.ScrollToEnd();
                     });
                     
                     AddLog("Gemini分析完了");
                     
-                    // ⭐ ポイントに応じた介入を実行（違反時のみ）
                     if (isViolation)
                     {
                         await ApplyInterventionLevel();
@@ -969,14 +888,11 @@ namespace screenShot2
                 }
                 else
                 {
-                    // レート制限エラー(429)の場合
                     if ((int)response.StatusCode == 429)
                     {
                         int retrySeconds = ExtractRetryDelay(responseBody);
                         AddLog($"レート制限: {retrySeconds}秒後に自動再試行します...");
-                        
                         await Task.Delay(retrySeconds * 1000);
-                        // 再帰呼び出しで再試行
                         await AnalyzeScreenshotsWithGemini(imagePaths);
                     }
                     else
@@ -1052,21 +968,15 @@ namespace screenShot2
                     }
                 }
             }
-            catch
-            {
-                // エラー時はデフォルトで30秒待機
-            }
-            return 30; // デフォルト30秒
+            catch { }
+            return 30;
         }
         
-        // 違反検知ロジック
         private bool IsViolationDetected(string geminiResponse)
         {
             if (string.IsNullOrWhiteSpace(geminiResponse))
                 return false;
             
-            // 正規表現で [判定] セクションの後の ○ または × を探す
-            // [判定] の後に改行や空白を挟んで ○ または × が来るパターン
             var match = System.Text.RegularExpressions.Regex.Match(geminiResponse, @"\[判定\]\s*[\r\n]+\s*([○×])");
             if (match.Success)
             {
@@ -1075,37 +985,25 @@ namespace screenShot2
                 if (verdict == "○") return false;
             }
 
-            // フォールバック: 行ごとに解析
             var lines = geminiResponse.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
             bool inVerdictSection = false;
 
             foreach (var line in lines)
             {
                 string trimmedLine = line.Trim();
-                
-                // [判定] セクションに入ったことを検知
                 if (trimmedLine.Contains("[判定]"))
                 {
                     inVerdictSection = true;
                     continue;
                 }
-
-                // [判定] セクション内でのみ判定を行う
-                if (inVerdictSection)
+                if (inVerdictSection && trimmedLine.StartsWith("×"))
                 {
-                    if (trimmedLine.StartsWith("×"))
-                    {
-                        return true;
-                    }
+                    return true;
                 }
             }
-
-          
-            
             return false;
         }
         
-        // 設定ファイルのパス取得
         private string GetConfigFilePath()
         {
             string appDataFolder = System.IO.Path.Combine(
@@ -1120,7 +1018,6 @@ namespace screenShot2
             return System.IO.Path.Combine(appDataFolder, "config.json");
         }
         
-        // 設定を保存
         private void SaveSettings()
         {
             try
@@ -1140,7 +1037,6 @@ namespace screenShot2
             }
         }
         
-        // 設定を読み込み
         private void LoadSettings()
         {
             try

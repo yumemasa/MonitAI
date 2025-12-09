@@ -112,16 +112,6 @@
                     <TextBlock Text="分析結果：" FontWeight="Bold" Margin="0,0,0,5"/>
                 </StackPanel>
 
-                <!-- 判定と介入レベルの強調表示エリア -->
-                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-                    <Border Background="#E3F2FD" BorderBrush="#2196F3" BorderThickness="1" Padding="10" Margin="0,0,0,5">
-                        <TextBlock x:Name="VerdictTextBlock" Text="判定: 待機中" FontSize="32" FontWeight="Bold" TextAlignment="Center" Foreground="#1565C0"/>
-                    </Border>
-                    <Border Background="#FFEBEE" BorderBrush="#F44336" BorderThickness="1" Padding="10">
-                        <TextBlock x:Name="InterventionTextBlock" Text="介入: なし" FontSize="24" FontWeight="Bold" TextAlignment="Center" Foreground="#D32F2F"/>
-                    </Border>
-                </StackPanel>
-
                 <!-- 分析結果（残りのスペース全て使用） -->
                 <Border BorderBrush="LightGray" BorderThickness="1" DockPanel.Dock="Top">
                     <TextBox x:Name="ResultTextBox" 
