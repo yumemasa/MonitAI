@@ -1230,28 +1230,44 @@ namespace screenShot2
             if (string.IsNullOrWhiteSpace(geminiResponse))
                 return false;
             
-            var match = System.Text.RegularExpressions.Regex.Match(geminiResponse, @"\[判定\]\s*[\r\n]+\s*([○×])");
+            // 修正: 角括弧があってもなくても、Markdownの大文字小文字も許容する柔軟な正規表現に変更
+            // パターン: "判定" という文字の後ろに改行があり、その次の行付近に "×" があるか
+            var match = Regex.Match(geminiResponse, @"(?:\[?判定\]?|Verdict)\s*[:：]?\s*[\r\n]+\s*([○×xX])", RegexOptions.IgnoreCase);
+            
             if (match.Success)
             {
                 string verdict = match.Groups[1].Value;
-                if (verdict == "×") return true;
+                // ×, x, X を違反とみなす
+                if (verdict == "×" || verdict.Equals("x", StringComparison.OrdinalIgnoreCase)) return true;
                 if (verdict == "○") return false;
             }
 
+            // フォールバック: 行ごとのスキャン（ここも柔軟にする）
             var lines = geminiResponse.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
             bool inVerdictSection = false;
 
             foreach (var line in lines)
             {
                 string trimmedLine = line.Trim();
-                if (trimmedLine.Contains("[判定]"))
+                
+                // "判定" という言葉が含まれていればセクション開始とみなす（角括弧なしも許容）
+                if (trimmedLine.Contains("判定") || trimmedLine.Contains("Verdict"))
                 {
                     inVerdictSection = true;
                     continue;
                 }
-                if (inVerdictSection && trimmedLine.StartsWith("×"))
+                
+                if (inVerdictSection)
                 {
-                    return true;
+                    // セクション内で最初に見つかった記号で判定
+                    if (trimmedLine.StartsWith("×") || trimmedLine.StartsWith("x", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                    if (trimmedLine.StartsWith("○"))
+                    {
+                        return false;
+                    }
                 }
             }
             return false;
