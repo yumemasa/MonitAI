@@ -86,6 +86,12 @@
                         </ComboBox>
                     </StackPanel>
 
+                    <!-- Gemini CLI 接続状態 -->
+                    <StackPanel Margin="0,0,0,15" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock x:Name="GeminiCliStatusTextBlock" Text="CLI: 未確認" VerticalAlignment="Center" FontWeight="Bold" Foreground="Gray"/>
+                        <Button Content="CLI接続チェック" Width="120" Margin="8,0,0,0" Click="CheckGeminiCliButton_Click"/>
+                    </StackPanel>
+
                     <!-- ルール入力 -->
                     <StackPanel Margin="0,0,0,15">
                         <TextBlock Text="目標・ルール（違反時のみ通知）：" Margin="0,0,0,5"/>

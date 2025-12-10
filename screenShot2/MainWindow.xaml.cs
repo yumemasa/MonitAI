@@ -15,8 +15,6 @@ using System.Diagnostics;
 using System.Text.RegularExpressions;
 using NAudio.CoreAudioApi;
 
-using System.Runtime.CompilerServices;
-
 namespace screenShot2
 {
     /// <summary>
@@ -134,7 +132,7 @@ namespace screenShot2
         private void InitializeApp()
         {
             // デフォルトの保存先を Pictures/capture に設定
-            _saveFolderPath = @"C:\\Users\\it222104\\Pictures\\capture";
+            _saveFolderPath = @"C:\Users\it222104\Pictures\capture";
             FolderPathTextBox.Text = _saveFolderPath;
 
             // モニター情報を更新
@@ -288,6 +286,16 @@ namespace screenShot2
                 _screenshotCount += screens.Length;
                 StatusTextBlock.Text = $"撮影中... (合計: {_screenshotCount}枚)";
                 AddLog($"スクリーンショット撮影完了: {screens.Length}枚 ({timestamp})");
+
+                // 送信対象の画像パスをログに表示して確認できるようにする
+                if (_currentScreenshotPaths.Count > 0)
+                {
+                    AddLog("送信予定の画像パス一覧:");
+                    foreach (var path in _currentScreenshotPaths)
+                    {
+                        AddLog($"  {path}");
+                    }
+                }
                 
                 // Gemini分析へ送信（常に有効）
                 if (_currentScreenshotPaths.Count > 0)
@@ -822,10 +830,20 @@ namespace screenShot2
                     cliResult = await AnalyzeWithGeminiCliAsync(imagePaths, userRules);
                     if (!string.IsNullOrWhiteSpace(cliResult))
                     {
-                        HandleGeminiResult(cliResult);
-                        return;
+                        if (IsCliFileReadFailure(cliResult))
+                        {
+                            AddLog("CLIが画像を読み込めなかったためAPIへフォールバックします");
+                        }
+                        else
+                        {
+                            HandleGeminiResult(cliResult);
+                            return;
+                        }
                     }
-                    AddLog("CLI解析に失敗したためAPIへフォールバックします");
+                    else
+                    {
+                        AddLog("CLI解析に失敗したためAPIへフォールバックします");
+                    }
                 }
 
                 // 2) HTTP API フォールバック
@@ -976,7 +994,9 @@ namespace screenShot2
                 string workingDir = Path.GetDirectoryName(imagePaths[0]) ?? Environment.CurrentDirectory;
                 // 改行をエスケープして1行のコマンドライン引数にする
                 string safePrompt = prompt.Replace("\"", "\\\"").Replace("\r\n", "\\n").Replace("\n", "\\n");
-                string args = $"--yolo -p \"{safePrompt}\"";
+
+                // read_file を許可し、YOLOで自動承認
+                string args = $"--allowed-tools read_file --yolo -p \"{safePrompt}\"";
 
                 string raw = await RunCommandAsync(_geminiCliCommand, args, workingDir);
                 if (string.IsNullOrWhiteSpace(raw)) return null;
@@ -1028,7 +1048,11 @@ namespace screenShot2
                             return "[タイムアウト] Gemini CLIが応答しませんでした。";
                         }
 
-                        return output + (string.IsNullOrEmpty(error) ? string.Empty : "\n" + error);
+                        string raw = output + (string.IsNullOrEmpty(error) ? string.Empty : "\n" + error);
+                        // [STARTUP] ログを除去
+                        var lines = raw.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None)
+                                       .Where(l => !l.StartsWith("[STARTUP]"));
+                        return string.Join("\n", lines).Trim();
                     }
                 }
                 catch (Exception ex)
@@ -1064,10 +1088,43 @@ namespace screenShot2
             return string.Join(Environment.NewLine, cleanLines);
         }
 
+        // CLI結果が「画像を読み込めなかった」系のエラーかを判定
+        private bool IsCliFileReadFailure(string cliResult)
+        {
+            string text = cliResult.ToLowerInvariant();
+            string[] markers = new[]
+            {
+                "画像ファイルが読み込まれなかった",
+                "画像を読み込めません",
+                "ファイルを読み込めません",
+                "読み込みに失敗",
+                "file not found",
+                "no such file",
+                "cannot find",
+                "could not read",
+                "failed to read",
+                "could not open",
+                "cannot open"
+            };
+
+            foreach (var marker in markers)
+            {
+                if (text.Contains(marker)) return true;
+            }
+
+            return false;
+        }
+
         // 共通プロンプト生成
         private string BuildAnalysisPrompt(string userRules)
         {
             return $@"
+あなたはユーザーのPC画面を監視し、生産性を管理する厳格なAIアシスタントです。
+以下の【ユーザーのルール】と【判定ガイドライン】に基づいて、厳密に判定を行ってください。
+
+【ユーザーのルール】
+{userRules}
+
 【重要：判定ガイドライン】
 1. **メインアクティビティの特定**:
    - 画面上の「小さなアイコン」「背景」「脇にある広告」「ブラウザのタブ」は無視してください。
@@ -1078,21 +1135,29 @@ namespace screenShot2
    - 勉強や業務のサイトに表示されている「広告バナー」は違反の対象外です。ユーザーがそれをクリックして視聴していない限り、無視してください。
 
 3. **否定条件の解釈**:
-   - 「～以外は禁止」の場合、許可された行動（～）のみが「○」。それ以外は全て「×」。
-   - 「～以外は許可」の場合、禁止された行動（～）のみが「×」。それ以外は全て「○」。
-
-【ユーザーのルール】
-{userRules}
+   - 「～以外は禁止」というルールの場合、許可された行動（～）のみが「○」です。それ以外は全て「×」です。
+   - 「～以外は許可」というルールの場合、禁止された行動（～）のみが「×」です。それ以外は全て「○」です。
 
 【回答フォーマット】
+まず、画面の状況を分析し、その後に判定結果を出力してください。
+重要: 分析は簡略化せず、以下のステップで思考プロセス（Chain of Thought）を展開してください。回答速度より、回答の精度を優先してください。
+重要: 出力にはMarkdown記法（太字、イタリック、見出し記号など）を一切使用せず、プレーンテキストのみを使用してください。
+
 [分析]
-1. 状況を具体的に記述（画像ごとに分け、ウィンドウタイトル/操作内容を詳述）
-2. ルールとの照合プロセスを段階的に示す
+1. 状況の客観的記述:
+   - 複数の画像がある場合は、(画像1)... (画像2)... のように画像を区別し、ウィンドウタイトル、実行中のコマンド、AIとのチャット内容、操作中の設定項目などを可能な限り詳細に言語化してください。
+   - 単に「作業中」とせず、「何を使って」「何をしているか」を具体的に記述してください。
+2. ルールとの照合プロセス:
+   - 記述した状況をユーザーのルールと照らし合わせ、許可される行動か、禁止される行動かを段階的に検討してください。
+   - 違反の疑いがある要素（YouTubeやSNSなど）について、それが「アクティブなウィンドウ」か「単なる映り込み（無視対象）」かを論理的に推論し、判定の根拠を固めてください。
 
 [判定]
-○\n内容: [ユーザーの行動]
-または
-×\n理由: [具体的な違反理由]
+（以下のいずれかのみ出力）
+○
+内容: [ユーザーの行動]
+（または）
+×
+理由: [具体的な違反理由]
 ";
         }
         
