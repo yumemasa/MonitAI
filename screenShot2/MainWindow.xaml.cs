@@ -33,7 +33,7 @@ namespace screenShot2
         private bool _useGeminiCli = true; // true ならCLIを優先し、失敗時のみHTTP APIへフォールバック
         private string _geminiCliCommand = @"C:\\nvm4w\\nodejs\\gemini.cmd"; // 環境に応じて変更。PATHが通っていれば "gemini" でも可
         private bool _geminiCliAvailable = false;
-        
+
         // ポイント制介入システム
         private int _violationPoints = 0;
         private bool _isDelayEnabled = false;
@@ -43,58 +43,58 @@ namespace screenShot2
         private System.Windows.Forms.Timer? _mouseInversionTimer;
         private System.Drawing.Point _lastMousePos;
         private System.Windows.Forms.NotifyIcon? _notifyIcon;
-        
+
         // キーボードフック関連
         private static LowLevelKeyboardProc? _keyboardProc;
         private static IntPtr _keyboardHookID = IntPtr.Zero;
         private bool _isSending = false;
-        
+
         // 画面ロック用のWin32 API
         [DllImport("user32.dll")]
         private static extern bool LockWorkStation();
-        
+
         // マウス操作用のWin32 API
         [DllImport("user32.dll")]
         private static extern bool GetCursorPos(out POINT lpPoint);
-        
+
         [DllImport("user32.dll")]
         private static extern bool SetCursorPos(int X, int Y);
-        
+
         [StructLayout(LayoutKind.Sequential)]
         private struct POINT { public int X; public int Y; }
-        
+
         // グレースケール用のWin32 API
         [DllImport("Magnification.dll", SetLastError = true)]
         private static extern bool MagInitialize();
-        
+
         [DllImport("Magnification.dll", SetLastError = true)]
         private static extern bool MagUninitialize();
-        
+
         [DllImport("Magnification.dll", SetLastError = true)]
         private static extern bool MagSetFullscreenColorEffect(ref MAGCOLOREFFECT pEffect);
-        
+
         private struct MAGCOLOREFFECT
         {
             [MarshalAs(UnmanagedType.ByValArray, SizeConst = 25)]
             public float[] transform;
         }
-        
+
         // キーボードフック用のWin32 API
         private const int WH_KEYBOARD_LL = 13;
         private const int WM_KEYDOWN = 0x0100;
-        
+
         private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
-        
+
         [DllImport("user32.dll", SetLastError = true)]
         private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
-        
+
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool UnhookWindowsHookEx(IntPtr hhk);
-        
+
         [DllImport("user32.dll")]
         private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
-        
+
         [DllImport("kernel32.dll")]
         private static extern IntPtr GetModuleHandle(string lpModuleName);
 
@@ -104,19 +104,19 @@ namespace screenShot2
             InitializeApp();
             InitializeInterventionSystem();
         }
-        
+
         private void InitializeInterventionSystem()
         {
             // マウス反転用タイマー
             _moveTimer = new System.Windows.Forms.Timer();
             _moveTimer.Interval = 2;
             _moveTimer.Tick += MoveTimer_Tick;
-            
+
             // マウス反転30秒自動解除タイマー
             _mouseInversionTimer = new System.Windows.Forms.Timer();
             _mouseInversionTimer.Interval = 30000; // 30秒
             _mouseInversionTimer.Tick += MouseInversionTimer_Tick;
-            
+
             // 通知アイコンの初期化
             _notifyIcon = new System.Windows.Forms.NotifyIcon
             {
@@ -137,7 +137,7 @@ namespace screenShot2
 
             // モニター情報を更新
             UpdateMonitorInfo();
-            
+
             // 設定ファイルからAPIキーを読み込む
             LoadSettings();
 
@@ -150,7 +150,7 @@ namespace screenShot2
             var screens = System.Windows.Forms.Screen.AllScreens;
             MonitorInfoTextBlock.Text = $"検出されたモニター: {screens.Length}";
             AddLog($"モニター数: {screens.Length}");
-            
+
             for (int i = 0; i < screens.Length; i++)
             {
                 var screen = screens[i];
@@ -179,7 +179,7 @@ namespace screenShot2
         {
             if (string.IsNullOrWhiteSpace(_saveFolderPath))
             {
-                System.Windows.MessageBox.Show("保存先フォルダを選択してください", "エラー", 
+                System.Windows.MessageBox.Show("保存先フォルダを選択してください", "エラー",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
@@ -191,7 +191,7 @@ namespace screenShot2
             }
             catch (Exception ex)
             {
-                System.Windows.MessageBox.Show($"フォルダの作成に失敗しました: {ex.Message}", "エラー", 
+                System.Windows.MessageBox.Show($"フォルダの作成に失敗しました: {ex.Message}", "エラー",
                     MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
@@ -206,7 +206,7 @@ namespace screenShot2
             AddLog($"撮影開始 - 45秒サイクル（ランダム撮影）");
 
             _isCapturing = true;
-            
+
             // 撮影ループを開始
             _ = StartCaptureLoop();
         }
@@ -269,7 +269,7 @@ namespace screenShot2
             {
                 var screens = System.Windows.Forms.Screen.AllScreens;
                 var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                
+
                 // 撮影したスクリーンショットのパスを保存
                 _currentScreenshotPaths.Clear();
 
@@ -296,13 +296,31 @@ namespace screenShot2
                         AddLog($"  {path}");
                     }
                 }
-                
+
                 // Gemini分析へ送信（常に有効）
                 if (_currentScreenshotPaths.Count > 0)
                 {
                     await AnalyzeScreenshotsWithGemini(_currentScreenshotPaths);
                 }
+                // 分析が終わった後に画像を完全削除する処理
+                foreach (var path in _currentScreenshotPaths)
+                {
+                    if (System.IO.File.Exists(path))
+                    {
+                        try
+                        {
+                            System.IO.File.Delete(path); // これで完全削除されます（ゴミ箱には行きません）
+                            AddLog($"画像を削除しました: {System.IO.Path.GetFileName(path)}");
+                        }
+                        catch (Exception ex)
+                        {
+                            AddLog($"削除エラー: {ex.Message}");
+                        }
+                    }
+                }
             }
+
+
             catch (Exception ex)
             {
                 AddLog($"エラー: {ex.Message}");
@@ -341,9 +359,9 @@ namespace screenShot2
 
                 // PNG形式で保存
                 bitmap.Save(filePath, ImageFormat.Png);
-                
+
                 AddLog($"  {monitorName}: {bounds.Width}x{bounds.Height} at ({bounds.Left}, {bounds.Top})");
-                
+
                 return filePath;
             }
         }
@@ -352,12 +370,12 @@ namespace screenShot2
         {
             var timestamp = DateTime.Now.ToString("HH:mm:ss");
             var logMessage = $"[{timestamp}] {message}\n";
-            
+
             Dispatcher.Invoke(() =>
             {
                 LogTextBlock.AppendText(logMessage);
                 LogTextBlock.ScrollToEnd();
-                
+
                 // ログが長くなりすぎないように制限
                 if (LogTextBlock.Text.Length > 5000)
                 {
@@ -376,18 +394,18 @@ namespace screenShot2
             if (_isGrayscaleEnabled) MagUninitialize();
             if (_keyboardHookID != IntPtr.Zero) UnhookWindowsHookEx(_keyboardHookID);
             _notifyIcon?.Dispose();
-            
+
             // 設定ファイルにAPIキーを保存する
             SaveSettings();
-            
+
             base.OnClosing(e);
         }
-        
+
         // 入力遅延を有効化
         private void EnableInputDelay()
         {
             if (_isDelayEnabled) return;
-            
+
             try
             {
                 using (var curProcess = System.Diagnostics.Process.GetCurrentProcess())
@@ -395,9 +413,9 @@ namespace screenShot2
                 {
                     if (curModule != null)
                     {
-                        _keyboardHookID = SetWindowsHookEx(WH_KEYBOARD_LL, _keyboardProc!, 
+                        _keyboardHookID = SetWindowsHookEx(WH_KEYBOARD_LL, _keyboardProc!,
                             GetModuleHandle(curModule.ModuleName), 0);
-                        
+
                         if (_keyboardHookID != IntPtr.Zero)
                         {
                             _isDelayEnabled = true;
@@ -415,12 +433,12 @@ namespace screenShot2
                 AddLog($"入力遅延エラー: {ex.Message}");
             }
         }
-        
+
         // 入力遅延を無効化
         private void DisableInputDelay()
         {
             if (!_isDelayEnabled) return;
-            
+
             if (_keyboardHookID != IntPtr.Zero)
             {
                 UnhookWindowsHookEx(_keyboardHookID);
@@ -434,7 +452,7 @@ namespace screenShot2
         private void DisableGrayscale()
         {
             if (!_isGrayscaleEnabled) return;
-            
+
             try
             {
                 MagUninitialize();
@@ -451,13 +469,13 @@ namespace screenShot2
         private void DisableMouseInversion()
         {
             if (!_isMouseInverted) return;
-            
+
             _mouseInversionTimer?.Stop();
             _moveTimer?.Stop();
             _isMouseInverted = false;
             AddLog("マウス反転を解除しました");
         }
-        
+
         // キーボードフックのコールバック
         private IntPtr KeyboardHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
         {
@@ -465,10 +483,10 @@ namespace screenShot2
             {
                 int vkCode = Marshal.ReadInt32(lParam);
                 System.Windows.Forms.Keys key = (System.Windows.Forms.Keys)vkCode;
-                
+
                 bool isAlpha = (vkCode >= (int)System.Windows.Forms.Keys.A && vkCode <= (int)System.Windows.Forms.Keys.Z);
                 bool isNumber = (vkCode >= (int)System.Windows.Forms.Keys.D0 && vkCode <= (int)System.Windows.Forms.Keys.D9);
-                
+
                 if (isAlpha || isNumber)
                 {
                     // 別スレッドで1秒遅延後に文字を送信
@@ -485,9 +503,9 @@ namespace screenShot2
                         {
                             AddLog($"SendKeys エラー: {ex.Message}");
                         }
-                        finally 
-                        { 
-                            _isSending = false; 
+                        finally
+                        {
+                            _isSending = false;
                         }
                     });
                     return (IntPtr)1; // キーを消費
@@ -495,7 +513,7 @@ namespace screenShot2
             }
             return CallNextHookEx(_keyboardHookID, nCode, wParam, lParam);
         }
-        
+
         // ポイントレベルに応じた介入処理
         private async Task ApplyInterventionLevel()
         {
@@ -503,7 +521,7 @@ namespace screenShot2
             string userGoal = string.IsNullOrWhiteSpace(RulesTextBox.Text) ? "設定された目標" : RulesTextBox.Text;
             var goalSummary = userGoal.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "目標";
             if (goalSummary.Length > 50) goalSummary = goalSummary.Substring(0, 50) + "...";
-            
+
             // レベル1: 通知 (1-30pt)
             if (_violationPoints >= 1 && _violationPoints <= 30)
             {
@@ -580,7 +598,7 @@ namespace screenShot2
                 ForceShutdown();
                 return;
             }
-            
+
             AddLog(interventionMessage);
             Dispatcher.Invoke(() =>
             {
@@ -648,7 +666,7 @@ namespace screenShot2
                 AddLog($"ビープ音エラー: {ex.Message}");
             }
         }
-        
+
         // 強制的に音量を操作してアラートを鳴らす
         private async Task PlayForcedAlertAsync(float targetVolume = 0.8f)
         {
@@ -672,7 +690,7 @@ namespace screenShot2
 
                     device.AudioEndpointVolume.Mute = false;
                     device.AudioEndpointVolume.MasterVolumeLevelScalar = targetVolume;
-                    
+
                     AddLog($"🔊 アラート再生: 音量を強制的に {targetVolume * 100:F0}% に設定しました");
                 }
             }
@@ -713,12 +731,12 @@ namespace screenShot2
                 }
             }
         }
-        
+
         // グレースケールを適用
         private void ApplyGrayscale()
         {
             if (_isGrayscaleEnabled) return;
-            
+
             try
             {
                 if (!MagInitialize())
@@ -726,7 +744,7 @@ namespace screenShot2
                     AddLog("グレースケール初期化失敗（管理者権限が必要）");
                     return;
                 }
-                
+
                 var matrix = new MAGCOLOREFFECT
                 {
                     transform = new float[25]
@@ -738,14 +756,14 @@ namespace screenShot2
                         0,0,0,0,1
                     }
                 };
-                
+
                 if (!MagSetFullscreenColorEffect(ref matrix))
                 {
                     AddLog("グレースケール適用失敗");
                     MagUninitialize();
                     return;
                 }
-                
+
                 _isGrayscaleEnabled = true;
                 AddLog("グレースケールを適用しました");
             }
@@ -759,7 +777,7 @@ namespace screenShot2
         private void EnableMouseInversion()
         {
             if (_isMouseInverted) return;
-            
+
             _isMouseInverted = true;
             GetCursorPos(out POINT p);
             _lastMousePos = new System.Drawing.Point(p.X, p.Y);
@@ -767,25 +785,25 @@ namespace screenShot2
             _mouseInversionTimer?.Start();
             AddLog("マウス反転を開始しました（30秒後に自動解除）");
         }
-        
+
         // マウス反転処理
         private void MoveTimer_Tick(object? sender, EventArgs e)
         {
             if (!_isMouseInverted) return;
-            
+
             GetCursorPos(out POINT current);
             var cur = new System.Drawing.Point(current.X, current.Y);
-            
+
             int dx = cur.X - _lastMousePos.X;
             int dy = cur.Y - _lastMousePos.Y;
-            
+
             int newX = cur.X - (int)(dx * 1.5);
             int newY = cur.Y - (int)(dy * 1.5);
-            
+
             SetCursorPos(newX, newY);
             _lastMousePos = new System.Drawing.Point(newX, newY);
         }
-        
+
         // マウス反転30秒後に自動解除
         private void MouseInversionTimer_Tick(object? sender, EventArgs e)
         {
@@ -794,7 +812,7 @@ namespace screenShot2
             _isMouseInverted = false;
             AddLog("マウス反転を自動解除しました（30秒経過）");
         }
-        
+
         // 強制シャットダウン
         private void ForceShutdown()
         {
@@ -807,7 +825,7 @@ namespace screenShot2
                 AddLog($"シャットダウンエラー: {ex.Message}");
             }
         }
-        
+
         // Gemini分析機能
         private async Task AnalyzeScreenshotsWithGemini(List<string> imagePaths)
         {
@@ -863,25 +881,25 @@ namespace screenShot2
                 jsonBuilder.Append("{\"text\":\"");
                 jsonBuilder.Append(EscapeJsonString(prompt));
                 jsonBuilder.Append("\"}");
-                
+
                 foreach (string imagePath in imagePaths)
                 {
                     byte[] imageBytes = File.ReadAllBytes(imagePath);
                     string base64Image = Convert.ToBase64String(imageBytes);
-                    
+
                     jsonBuilder.Append(",{\"inline_data\":{\"mime_type\":\"image/png\",\"data\":\"");
                     jsonBuilder.Append(base64Image);
                     jsonBuilder.Append("\"}}");
                 }
-                
+
                 jsonBuilder.Append("]}]");
                 jsonBuilder.Append(", \"generationConfig\": {\"maxOutputTokens\": 4000}");
                 jsonBuilder.Append("}");
-                
+
                 var content = new StringContent(jsonBuilder.ToString(), Encoding.UTF8, "application/json");
                 var response = await _httpClient.PostAsync(apiUrl, content);
                 string responseBody = await response.Content.ReadAsStringAsync();
-                
+
                 if (response.IsSuccessStatusCode)
                 {
                     string result = ParseGeminiResponse(responseBody);
@@ -1160,7 +1178,7 @@ namespace screenShot2
 理由: [具体的な違反理由]
 ";
         }
-        
+
         private string EscapeJsonString(string str)
         {
             return str.Replace("\\", "\\\\")
@@ -1170,19 +1188,19 @@ namespace screenShot2
                       .Replace("\r", "\\n")
                       .Replace("\t", "\\t");
         }
-        
+
         private string ParseGeminiResponse(string jsonResponse)
         {
             try
             {
                 using (JsonDocument doc = JsonDocument.Parse(jsonResponse))
                 {
-                    if (doc.RootElement.TryGetProperty("candidates", out JsonElement candidates) && 
+                    if (doc.RootElement.TryGetProperty("candidates", out JsonElement candidates) &&
                         candidates.GetArrayLength() > 0)
                     {
                         var firstCandidate = candidates[0];
-                        if (firstCandidate.TryGetProperty("content", out JsonElement content) && 
-                            content.TryGetProperty("parts", out JsonElement parts) && 
+                        if (firstCandidate.TryGetProperty("content", out JsonElement content) &&
+                            content.TryGetProperty("parts", out JsonElement parts) &&
                             parts.GetArrayLength() > 0)
                         {
                             return parts[0].GetProperty("text").GetString() ?? "";
@@ -1196,7 +1214,7 @@ namespace screenShot2
                 return $"分析結果の解析中にエラーが発生しました: {ex.Message}";
             }
         }
-        
+
         private int ExtractRetryDelay(string errorResponse)
         {
             try
@@ -1224,16 +1242,16 @@ namespace screenShot2
             catch { }
             return 30;
         }
-        
+
         private bool IsViolationDetected(string geminiResponse)
         {
             if (string.IsNullOrWhiteSpace(geminiResponse))
                 return false;
-            
+
             // 修正: 角括弧があってもなくても、Markdownの大文字小文字も許容する柔軟な正規表現に変更
             // パターン: "判定" という文字の後ろに改行があり、その次の行付近に "×" があるか
             var match = Regex.Match(geminiResponse, @"(?:\[?判定\]?|Verdict)\s*[:：]?\s*[\r\n]+\s*([○×xX])", RegexOptions.IgnoreCase);
-            
+
             if (match.Success)
             {
                 string verdict = match.Groups[1].Value;
@@ -1249,14 +1267,14 @@ namespace screenShot2
             foreach (var line in lines)
             {
                 string trimmedLine = line.Trim();
-                
+
                 // "判定" という言葉が含まれていればセクション開始とみなす（角括弧なしも許容）
                 if (trimmedLine.Contains("判定") || trimmedLine.Contains("Verdict"))
                 {
                     inVerdictSection = true;
                     continue;
                 }
-                
+
                 if (inVerdictSection)
                 {
                     // セクション内で最初に見つかった記号で判定
@@ -1272,21 +1290,21 @@ namespace screenShot2
             }
             return false;
         }
-        
+
         private string GetConfigFilePath()
         {
             string appDataFolder = System.IO.Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "screenShot2");
-            
+
             if (!Directory.Exists(appDataFolder))
             {
                 Directory.CreateDirectory(appDataFolder);
             }
-            
+
             return System.IO.Path.Combine(appDataFolder, "config.json");
         }
-        
+
         private void SaveSettings()
         {
             try
@@ -1296,7 +1314,7 @@ namespace screenShot2
                     { "ApiKey", ApiKeyPasswordBox.Password },
                     { "Rules", RulesTextBox.Text }
                 };
-                
+
                 string json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(GetConfigFilePath(), json);
             }
@@ -1305,7 +1323,7 @@ namespace screenShot2
                 AddLog($"設定保存エラー: {ex.Message}");
             }
         }
-        
+
         private void LoadSettings()
         {
             try
@@ -1315,19 +1333,19 @@ namespace screenShot2
                 {
                     string json = File.ReadAllText(configPath);
                     var settings = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
-                    
+
                     if (settings != null)
                     {
                         if (settings.ContainsKey("ApiKey"))
                         {
                             ApiKeyPasswordBox.Password = settings["ApiKey"];
                         }
-                        
+
                         if (settings.ContainsKey("Rules"))
                         {
                             RulesTextBox.Text = settings["Rules"];
                         }
-                        
+
                         AddLog("設定を読み込みました");
                     }
                 }
