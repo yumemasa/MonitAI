@@ -94,13 +94,15 @@ namespace screenShot2
                 EnableMouseInversion();
                 await PlayForcedAlertAsync();
             }
-            // レベル6: 画面ロック
+           // レベル6: 画面ロック (201-250pt)
             else if (points <= 250)
             {
-                message = "🔒 レベル6: 画面ロック実行";
-                OnLog?.Invoke("⚠️ ポイント上限！3秒後に画面をロックします...");
+                message = "🔒 レベル6: 強制画面ロック";
+                OnLog?.Invoke("⚠️ ポイント上限！3秒後に画面をロックします。30秒間は解除できません...");
                 await Task.Delay(3000);
-                NativeMethods.LockWorkStation();
+                // 【変更点】単発ロックではなく、持続ロックメソッドを呼び出す
+                // NativeMethods.LockWorkStation(); // ← 元のコード
+                await EnforcePersistentLockAsync(30); // ← 新しいコード (30秒指定)
                 return;
             }
             // レベル7: シャットダウン
@@ -158,6 +160,26 @@ namespace screenShot2
                 _isDelayEnabled = false;
                 OnLog?.Invoke("入力遅延を解除しました");
             }
+        }
+
+        private async Task EnforcePersistentLockAsync(int durationSeconds)
+        {
+            OnLog?.Invoke($"🔒 頭を冷やしてください。{durationSeconds}秒間、ロックを強制します。");
+            
+            var endTime = DateTime.Now.AddSeconds(durationSeconds);
+            
+            // 指定時間が経過するまでループ
+            while (DateTime.Now < endTime)
+            {
+                // ロックを実行
+                NativeMethods.LockWorkStation();
+                
+                // 次のロックまで少し待機 (PCへの負荷軽減と、ユーザーに「あ、またロックされた」と認識させるため)
+                // 0.5秒間隔なら、パスワードを入力してデスクトップが表示された瞬間にまたロックされます
+                await Task.Delay(500);
+            }
+            
+            OnLog?.Invoke("🔓 強制ロック期間が終了しました。");
         }
 
         private void ApplyGrayscale()

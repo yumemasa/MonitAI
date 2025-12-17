@@ -183,7 +183,7 @@ namespace screenShot2
         {
             if (result.IsViolation)
             {
-                _violationPoints += 30;
+                _violationPoints += 201;
                 AddLog($"⚠️ 違反検知！ポイント +30 (合計: {_violationPoints}pt)");
             }
             else

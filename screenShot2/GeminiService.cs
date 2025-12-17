@@ -21,7 +21,7 @@ namespace screenShot2
     public class GeminiService
     {
         private static readonly HttpClient _httpClient = new HttpClient();
-        
+
         // CLIコマンドのパス（デフォルトはPATH上のgemini、必要に応じて設定可能）
         public string GeminiCliCommand { get; set; } = "gemini";
         public bool UseGeminiCli { get; set; } = true;
@@ -60,7 +60,7 @@ namespace screenShot2
             result.RawText = apiOutput;
             result.IsViolation = IsViolationDetected(apiOutput);
             result.Source = "API";
-            
+
             return result;
         }
 
@@ -69,8 +69,8 @@ namespace screenShot2
             try
             {
                 string output = await RunCommandAsync(GeminiCliCommand, "--version", Environment.CurrentDirectory);
-                return !string.IsNullOrWhiteSpace(output) && 
-                       !output.Contains("error", StringComparison.OrdinalIgnoreCase) && 
+                return !string.IsNullOrWhiteSpace(output) &&
+                       !output.Contains("error", StringComparison.OrdinalIgnoreCase) &&
                        !output.Contains("not found", StringComparison.OrdinalIgnoreCase);
             }
             catch
@@ -85,9 +85,13 @@ namespace screenShot2
             {
                 string basePrompt = BuildAnalysisPrompt(userRules).Trim();
                 var sb = new StringBuilder();
+                sb.AppendLine("【重要：システム指示】");
+                sb.AppendLine("あなたは読み込んだ画像データを**視覚的に解析できる**高度なマルチモーダルAIです。");
+                sb.AppendLine("「テキストしか読めない」「画像が見えない」といった誤った判断をせず、必ず以下の手順を実行してください。");
+                sb.AppendLine("1. ツール `read_file` を使用して、以下の絶対パスにある画像ファイルをすべて読み込む。");
+                sb.AppendLine("2. 画像内のウィンドウタイトル、アイコン、テキスト、アクティブな状況を詳細に視覚認識する。");
+                sb.AppendLine("3. 後述する【ユーザーのルール】に基づいて判定を行う。");
                 sb.AppendLine(basePrompt);
-                sb.AppendLine("\n【CLI追加指示】");
-                sb.AppendLine("以下の画像を read_file ツールで読み込み、[分析] と [判定] を出力してください。");
                 foreach (var path in imagePaths)
                 {
                     sb.AppendLine($"\"{path}\"");
@@ -175,7 +179,7 @@ namespace screenShot2
                         string error = process.StandardError.ReadToEnd();
                         process.WaitForExit(90000);
                         if (!process.HasExited) { process.Kill(); return "Timeout"; }
-                        
+
                         string raw = output + (string.IsNullOrEmpty(error) ? "" : "\n" + error);
                         var lines = raw.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None)
                                        .Where(l => !l.StartsWith("[STARTUP]"));
@@ -188,7 +192,7 @@ namespace screenShot2
 
         private string BuildAnalysisPrompt(string userRules)
         {
-             return $@"
+            return $@"
 あなたはユーザーのPC画面を監視し、生産性を管理する厳格なAIアシスタントです。
 以下の【ユーザーのルール】と【判定ガイドライン】に基づいて、厳密に判定を行ってください。
 
@@ -242,7 +246,7 @@ namespace screenShot2
                 string v = match.Groups[1].Value;
                 return v == "×" || v.Equals("x", StringComparison.OrdinalIgnoreCase);
             }
-            
+
             // フォールバック検索
             var lines = text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
             bool inSection = false;
